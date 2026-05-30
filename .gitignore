@@ -1,0 +1,39 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+*.pyc
+__pycache__/
+.Python
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# Datasets
+datasets/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Models
+models/*.pkl
+models/*.h5
+models/*.joblib
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
