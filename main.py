@@ -13,6 +13,8 @@ from core.config import (
 )
 
 from data.market_data import MarketDataManager
+from strategies.zigzag import detect_zigzag
+from strategies.order_block import detect_order_blocks  # ← NUEVO: Import del detector de OBs
 
 
 # =========================================================
@@ -66,6 +68,11 @@ refresh_seconds = st.sidebar.slider(
     value=10
 )
 
+show_order_blocks = st.sidebar.checkbox(
+    "Mostrar Order Blocks",
+    value=True
+)
+
 # =========================================================
 # AUTO REFRESH
 # =========================================================
@@ -82,17 +89,75 @@ st_autorefresh(
 st.title("📈 BOT2 Trading Dashboard")
 
 # =========================================================
+# HELPER: DETECTAR BOS DESDE ZIGZAG PIVOTS
+# =========================================================
+
+def detect_bos_from_zigzag(df, pivots, lookback=5):
+    """
+    Detecta Break of Structure (BOS) basándose en pivotes ZigZag.
+    
+    - BULLISH_BOS: Cuando un HIGH rompe el HIGH anterior significativo
+    - BEARISH_BOS: Cuando un LOW rompe el LOW anterior significativo
+    """
+    bos_list = []
+    
+    if len(pivots) < 3:
+        return bos_list
+    
+    # Recorrer pivotes buscando rupturas de estructura
+    for i in range(2, len(pivots)):
+        current = pivots[i]
+        prev_significant = None
+        
+        # Buscar el pivote significativo anterior del tipo opuesto
+        for j in range(i - 1, -1, -1):
+            if pivots[j]["type"] != current["type"]:
+                prev_significant = pivots[j]
+                break
+        
+        if prev_significant is None:
+            continue
+        
+        # Índice de la vela actual en el DataFrame
+        try:
+            current_idx = df[df["time"] == current["time"]].index[0]
+        except IndexError:
+            continue
+        
+        # 🔹 BULLISH_BOS: HIGH actual > HIGH anterior significativo
+        if current["type"] == "HIGH":
+            if float(current["price"]) > float(prev_significant["price"]):
+                bos_list.append({
+                    "type": "BULLISH_BOS",
+                    "index": int(current_idx),
+                    "price": float(current["price"]),
+                    "time": current["time"],
+                    "broken_level": float(prev_significant["price"])
+                })
+        
+        # 🔹 BEARISH_BOS: LOW actual < LOW anterior significativo  
+        elif current["type"] == "LOW":
+            if float(current["price"]) < float(prev_significant["price"]):
+                bos_list.append({
+                    "type": "BEARISH_BOS",
+                    "index": int(current_idx),
+                    "price": float(current["price"]),
+                    "time": current["time"],
+                    "broken_level": float(prev_significant["price"])
+                })
+    
+    return bos_list
+
+
+# =========================================================
 # MT5 CONNECTION
 # =========================================================
 
 if MT5_PATH:
-
     initialized = mt5.initialize(
         path=MT5_PATH
     )
-
 else:
-
     initialized = mt5.initialize()
 
 if not initialized:
@@ -116,7 +181,6 @@ if not authorized:
     )
 
     mt5.shutdown()
-
     st.stop()
 
 # =========================================================
@@ -132,7 +196,6 @@ if account is None:
     )
 
     mt5.shutdown()
-
     st.stop()
 
 st.subheader("💰 Cuenta")
@@ -180,7 +243,6 @@ if real_symbol is None:
     )
 
     mt5.shutdown()
-
     st.stop()
 
 tick = mt5.symbol_info_tick(real_symbol)
@@ -223,7 +285,6 @@ if df is None or df.empty:
     )
 
     mt5.shutdown()
-
     st.stop()
 
 # =========================================================
@@ -243,6 +304,39 @@ df["ema50"] = (
 )
 
 # =========================================================
+# ZIGZAG
+# =========================================================
+
+pivots = detect_zigzag(
+    df,
+    deviation=0.5,
+    depth=10
+)
+
+# =========================================================
+# BREAK OF STRUCTURE (BOS)
+# =========================================================
+
+bos_list = detect_bos_from_zigzag(df, pivots)
+
+# =========================================================
+# ORDER BLOCKS
+# =========================================================
+
+order_blocks = []
+
+if show_order_blocks and len(bos_list) > 0:
+    
+    order_blocks = detect_order_blocks(df, bos_list)
+    
+    # 🔹 Actualizar mitigación: si el precio actual tocó la zona del OB
+    if len(order_blocks) > 0 and len(df) > 0:
+        current_price = df["close"].iloc[-1]
+        for ob in order_blocks:
+            if ob["low"] <= current_price <= ob["high"]:
+                ob["mitigated"] = True
+
+# =========================================================
 # CHART
 # =========================================================
 
@@ -251,6 +345,10 @@ st.subheader(
 )
 
 fig = go.Figure()
+
+# =========================================================
+# CANDLES
+# =========================================================
 
 fig.add_trace(
 
@@ -267,6 +365,10 @@ fig.add_trace(
     )
 )
 
+# =========================================================
+# EMA20
+# =========================================================
+
 fig.add_trace(
 
     go.Scatter(
@@ -274,9 +376,16 @@ fig.add_trace(
         x=df["time"],
         y=df["ema20"],
 
-        name="EMA20"
+        mode="lines",
+
+        name="EMA20",
+        line=dict(width=1, color="orange")
     )
 )
+
+# =========================================================
+# EMA50
+# =========================================================
 
 fig.add_trace(
 
@@ -285,25 +394,220 @@ fig.add_trace(
         x=df["time"],
         y=df["ema50"],
 
-        name="EMA50"
+        mode="lines",
+
+        name="EMA50",
+        line=dict(width=1, color="blue")
     )
 )
 
+# =========================================================
+# ZIGZAG
+# =========================================================
+
+if len(pivots) > 0:
+
+    pivot_times = [
+        p["time"]
+        for p in pivots
+    ]
+
+    pivot_prices = [
+        float(p["price"])
+        for p in pivots
+    ]
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=pivot_times,
+
+            y=pivot_prices,
+
+            mode="lines+markers",
+
+            name="ZigZag",
+            line=dict(width=1, color="purple"),
+            marker=dict(size=6)
+        )
+    )
+
+    for pivot in pivots:
+
+        label = (
+            "HH"
+            if pivot["type"] == "HIGH"
+            else "LL"
+        )
+
+        fig.add_annotation(
+
+            x=pivot["time"],
+
+            y=float(
+                pivot["price"]
+            ),
+
+            text=label,
+
+            showarrow=True,
+
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=2,
+            arrowcolor="purple" if pivot["type"] == "HIGH" else "brown",
+            bgcolor="white",
+            bordercolor="gray",
+            borderwidth=1,
+            font=dict(size=9)
+        )
+
+# =========================================================
+# ORDER BLOCKS - DIBUJAR ZONAS
+# =========================================================
+
+if show_order_blocks and len(order_blocks) > 0:
+    
+    for ob in order_blocks:
+        
+        # Colores según tipo y estado de mitigación
+        if ob["type"] == "BULLISH_OB":
+            color = "rgba(0, 200, 83, 0.15)" if not ob["mitigated"] else "rgba(0, 200, 83, 0.05)"
+            border_color = "rgba(0, 200, 83, 0.8)"
+            label = "🟢 Bullish OB"
+        else:
+            color = "rgba(255, 82, 82, 0.15)" if not ob["mitigated"] else "rgba(255, 82, 82, 0.05)"
+            border_color = "rgba(255, 82, 82, 0.8)"
+            label = "🔴 Bearish OB"
+        
+        # Añadir rectángulo para la zona del Order Block
+        fig.add_vrect(
+            x0=ob["time"],
+            x1=ob["time"],  # Se extiende hacia la derecha visualmente
+            y0=ob["low"],
+            y1=ob["high"],
+            fillcolor=color,
+            line=dict(width=1, color=border_color, dash="dot"),
+            annotation_text=label if not ob["mitigated"] else f"{label} ✓",
+            annotation_position="top right",
+            annotation_font_size=9,
+            annotation_font_color=border_color,
+            layer="below"
+        )
+        
+        # Añadir línea horizontal de referencia en el centro del OB
+        mid_price = (ob["high"] + ob["low"]) / 2
+        fig.add_hrect(
+            y0=ob["low"],
+            y1=ob["high"],
+            fillcolor=color,
+            line_width=0,
+            opacity=0,
+            layer="below"
+        )
+
+# =========================================================
+# LAYOUT DEL GRÁFICO
+# =========================================================
+
 fig.update_layout(
 
-    height=700,
+    height=850,
 
     xaxis_rangeslider_visible=False,
 
     legend=dict(
-        orientation="h"
-    )
+        orientation="h",
+        yanchor="bottom",
+        y=1.02,
+        xanchor="right",
+        x=1
+    ),
+    
+    hovermode="x unified",
+    
+    xaxis_title="Tiempo",
+    yaxis_title="Precio",
+    
+    margin=dict(t=60, b=20, l=20, r=20)
 )
 
 st.plotly_chart(
     fig,
     use_container_width=True
 )
+
+# =========================================================
+# PANEL INFERIOR: INFO ADICIONAL
+# =========================================================
+
+col_chart_info1, col_chart_info2 = st.columns(2)
+
+# 🔹 Order Blocks Detectados
+with col_chart_info1:
+    st.subheader("🧱 Order Blocks Detectados")
+    
+    if show_order_blocks:
+        st.write(f"Total OBs: **{len(order_blocks)}**")
+        
+        if len(order_blocks) > 0:
+            # Preparar datos para tabla
+            ob_table = []
+            for ob in order_blocks[-10:]:  # Últimos 10
+                ob_table.append({
+                    "Tipo": "🟢 Bullish" if ob["type"] == "BULLISH_OB" else "🔴 Bearish",
+                    "Tiempo": str(ob["time"]),
+                    "High": f"{ob['high']:.3f}",
+                    "Low": f"{ob['low']:.3f}",
+                    "Mitigado": "✅ Sí" if ob["mitigated"] else "❌ No"
+                })
+            
+            st.dataframe(
+                ob_table,
+                use_container_width=True,
+                hide_index=True
+            )
+    else:
+        st.info("Activa 'Mostrar Order Blocks' en el sidebar para ver las zonas.")
+
+# 🔹 BOS Detectados
+with col_chart_info2:
+    st.subheader("⚡ Break of Structure (BOS)")
+    st.write(f"Total BOS: **{len(bos_list)}**")
+    
+    if len(bos_list) > 0:
+        bos_table = []
+        for bos in bos_list[-10:]:
+            bos_table.append({
+                "Tipo": "📈 Bullish" if bos["type"] == "BULLISH_BOS" else "📉 Bearish",
+                "Tiempo": str(bos["time"]),
+                "Precio Ruptura": f"{bos['price']:.3f}",
+                "Nivel Roto": f"{bos['broken_level']:.3f}"
+            })
+        
+        st.dataframe(
+            bos_table,
+            use_container_width=True,
+            hide_index=True
+        )
+
+# =========================================================
+# ZIGZAG INFO
+# =========================================================
+
+st.subheader("🔺 ZigZag Pivots")
+
+st.write(
+    f"Total pivots detectados: {len(pivots)}"
+)
+
+if len(pivots) > 0:
+
+    st.dataframe(
+        pivots[-20:],
+        use_container_width=True
+    )
 
 # =========================================================
 # LAST CANDLE
