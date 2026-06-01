@@ -1,0 +1,40 @@
+=== PROGRESS SUMMARY ===
+Date: 2026-05-21
+
+=== WHAT WE DID ===
+
+1. NAS100 error 10014 (volumen inválido)
+   - fixed_risk_manager.py: calculate_position_size now accepts optional risk_per_trade_pct
+   - bot.py: passes profile.risk_per_trade_pct/100 per symbol
+   - NAS100 was using global 1% risk ($48.47 → 2.42 lots, error 10014)
+   - Now uses 0.3% ($14.54 → 0.73 lots)
+
+2. SL buffer adaptativo
+   - strategy_engine.py _build_order: sl_buffer = max(sl_buffer_fixed, atr_val * 0.3)
+   - Prevents false stop-outs in volatile markets (NAS100 buffer was 5 fixed pts,
+     now adapts to ATR: if ATR=30, buffer=9 pts)
+
+=== WHAT WE TRIED / DECIDED ===
+
+- FOK orders unsupported on Pepperstone (error 10030) → always use IOC
+- LIMIT orders (entry at 50% FVG) deferred — requires architectural change
+  (monitor pending orders, cancel on invalidation)
+- Body Close Rule, Dual Block Anatomy, Triple Confluence, Wyckoff Phase D all integrated
+- State persistence via SQLite (cleared on restart)
+
+=== PENDING / NEXT STEPS ===
+
+1. LIMIT orders architecture for entry at 50% FVG (separate from market order path)
+   - Monitor pending orders
+   - Cancel if POI invalidated
+   - Different approach: watch price approach POI, then enter via market when close enough
+
+2. Monitor NAS100 with new volume — verify 0.73 lots works without 10014
+
+3. Monitor adaptive SL buffer — verify fewer false stop-outs
+
+4. TP optimization: _find_tp_target currently picks closest swing with RR>=2
+   - Could use HTF range extension targets in strong trends
+   - Could trail TP similarly to trailing SL
+
+5. Optional: add logging of ATR-based buffer calculation to verify in logs

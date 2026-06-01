@@ -1,0 +1,200 @@
+2026-05-24 18:13:48.734 | INFO     | src.adapters.mt5_client:connect:34 - Already connected to Exness-MT5Trial11 (login=198410501)
+2026-05-24 18:13:48.734 | INFO     | src.adapters.mt5_client:connect:34 - Already connected to Exness-MT5Trial11 (login=198410501)
+2026-05-24 18:13:48.735 | INFO     | __main__:start:297 - ==================================================
+2026-05-24 18:13:48.735 | INFO     | __main__:start:297 - ==================================================
+2026-05-24 18:13:48.735 | INFO     | __main__:start:298 - SMC Scoring Trading Bot starting...
+2026-05-24 18:13:48.735 | INFO     | __main__:start:298 - SMC Scoring Trading Bot starting...
+2026-05-24 18:13:48.735 | INFO     | __main__:start:299 - Symbols: XAUUSD, XAGUSD | Min Score: 70.0
+2026-05-24 18:13:48.735 | INFO     | __main__:start:299 - Symbols: XAUUSD, XAGUSD | Min Score: 70.0
+2026-05-24 18:13:48.735 | INFO     | __main__:start:302 - ==================================================
+2026-05-24 18:13:48.735 | INFO     | __main__:start:302 - ==================================================
+2026-05-24 18:13:49.745 | INFO     | src.adapters.mt5_client:connect:34 - Already connected to Exness-MT5Trial11 (login=198410501)
+2026-05-24 18:13:49.745 | INFO     | src.adapters.mt5_client:connect:34 - Already connected to Exness-MT5Trial11 (login=198410501)
+2026-05-24 18:13:49.750 | INFO     | src.core.state_persistence:initialize:56 - State persistence initialized at C:\Users\LRAMOS\Desktop\trading-bot\trading-bot\data\trading_state.db
+2026-05-24 18:13:49.750 | INFO     | src.core.state_persistence:initialize:56 - State persistence initialized at C:\Users\LRAMOS\Desktop\trading-bot\trading-bot\data\trading_state.db
+2026-05-24 18:13:49.751 | INFO     | src.core.state_persistence:load_daily_state:99 - Loaded daily state: loss=0.0, trades=0
+2026-05-24 18:13:49.751 | INFO     | src.core.state_persistence:load_daily_state:99 - Loaded daily state: loss=0.0, trades=0
+2026-05-24 18:13:49.758 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=False
+2026-05-24 18:13:49.758 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=False
+2026-05-24 18:13:49.758 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.758 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.758 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.758 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.759 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.759 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.759 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.759 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.759 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.759 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.759 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.759 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.760 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.760 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.760 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.760 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310108321, BE=True, Trail=True
+2026-05-24 18:13:49.760 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310119336, BE=True, Trail=False
+2026-05-24 18:13:49.760 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310119336, BE=True, Trail=False
+2026-05-24 18:13:49.761 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125162, BE=True, Trail=False
+2026-05-24 18:13:49.761 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125162, BE=True, Trail=False
+2026-05-24 18:13:49.761 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125162, BE=True, Trail=True
+2026-05-24 18:13:49.761 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125162, BE=True, Trail=True
+2026-05-24 18:13:49.762 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=False
+2026-05-24 18:13:49.762 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=False
+2026-05-24 18:13:49.762 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=True
+2026-05-24 18:13:49.762 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=True
+2026-05-24 18:13:49.763 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=True
+2026-05-24 18:13:49.763 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=True
+2026-05-24 18:13:49.763 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=True
+2026-05-24 18:13:49.763 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=True
+2026-05-24 18:13:49.763 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=True
+2026-05-24 18:13:49.763 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=True
+2026-05-24 18:13:49.764 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=True
+2026-05-24 18:13:49.764 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310125242, BE=True, Trail=True
+2026-05-24 18:13:49.764 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=False
+2026-05-24 18:13:49.764 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=False
+2026-05-24 18:13:49.765 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=False
+2026-05-24 18:13:49.765 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=False
+2026-05-24 18:13:49.765 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=False
+2026-05-24 18:13:49.765 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=False
+2026-05-24 18:13:49.766 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.766 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.766 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.766 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.767 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.767 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.767 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.767 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.768 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.768 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.772 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.772 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.772 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.772 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.772 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.772 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.774 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.774 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.775 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.775 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.775 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.775 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.776 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.776 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145727, BE=True, Trail=True
+2026-05-24 18:13:49.776 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.776 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.777 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.777 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.777 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.777 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.777 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.777 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.778 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.778 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.778 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.778 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310145878, BE=True, Trail=True
+2026-05-24 18:13:49.779 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310156726, BE=True, Trail=False
+2026-05-24 18:13:49.779 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310156726, BE=True, Trail=False
+2026-05-24 18:13:49.779 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310156274, BE=True, Trail=False
+2026-05-24 18:13:49.779 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310156274, BE=True, Trail=False
+2026-05-24 18:13:49.779 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310156274, BE=True, Trail=True
+2026-05-24 18:13:49.779 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310156274, BE=True, Trail=True
+2026-05-24 18:13:49.780 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310156274, BE=True, Trail=True
+2026-05-24 18:13:49.780 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310156274, BE=True, Trail=True
+2026-05-24 18:13:49.780 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310157127, BE=True, Trail=False
+2026-05-24 18:13:49.780 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310157127, BE=True, Trail=False
+2026-05-24 18:13:49.781 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310157127, BE=True, Trail=False
+2026-05-24 18:13:49.781 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310157127, BE=True, Trail=False
+2026-05-24 18:13:49.781 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310157127, BE=True, Trail=True
+2026-05-24 18:13:49.781 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310157127, BE=True, Trail=True
+2026-05-24 18:13:49.782 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310157127, BE=True, Trail=True
+2026-05-24 18:13:49.782 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310157127, BE=True, Trail=True
+2026-05-24 18:13:49.782 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310166266, BE=True, Trail=False
+2026-05-24 18:13:49.782 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310166266, BE=True, Trail=False
+2026-05-24 18:13:49.783 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310166266, BE=True, Trail=True
+2026-05-24 18:13:49.783 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310166266, BE=True, Trail=True
+2026-05-24 18:13:49.783 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310166266, BE=True, Trail=True
+2026-05-24 18:13:49.783 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=310166266, BE=True, Trail=True
+2026-05-24 18:13:49.790 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=517888546, BE=True, Trail=False
+2026-05-24 18:13:49.790 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=517888546, BE=True, Trail=False
+2026-05-24 18:13:49.791 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=517888573, BE=True, Trail=False
+2026-05-24 18:13:49.791 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=517888573, BE=True, Trail=False
+2026-05-24 18:13:49.792 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=517892485, BE=True, Trail=False
+2026-05-24 18:13:49.792 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=517892485, BE=True, Trail=False
+2026-05-24 18:13:49.793 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=517902365, BE=True, Trail=False
+2026-05-24 18:13:49.793 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=517902365, BE=True, Trail=False
+2026-05-24 18:13:49.794 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=517902365, BE=True, Trail=True
+2026-05-24 18:13:49.794 | INFO     | __main__:_initialize_state:287 - Loaded position: ticket=517902365, BE=True, Trail=True
+2026-05-24 18:13:49.796 | INFO     | src.scheduler.timeframe_scheduler:start:44 - Scheduler started
+2026-05-24 18:13:49.796 | INFO     | src.scheduler.timeframe_scheduler:start:44 - Scheduler started
+2026-05-24 18:13:49.797 | INFO     | __main__:_evaluate:350 - ========================================
+2026-05-24 18:13:49.797 | INFO     | __main__:_evaluate:350 - ========================================
+2026-05-24 18:13:49.797 | INFO     | __main__:_evaluate:351 - SMC Evaluation started at 2026-05-24 18:13:49.797743
+2026-05-24 18:13:49.797 | INFO     | __main__:_evaluate:351 - SMC Evaluation started at 2026-05-24 18:13:49.797743
+2026-05-24 18:13:50.712 | ERROR    | __main__:_evaluate:363 - Error evaluating XAUUSD: name 'find_swing_points' is not defined
+2026-05-24 18:13:50.712 | ERROR    | __main__:_evaluate:363 - Error evaluating XAUUSD: name 'find_swing_points' is not defined
+2026-05-24 18:13:51.697 | INFO     | __main__:_evaluate_symbol:401 - [XAGUSD] Signal: SELL | Score: 132.0 | Primary: none
+2026-05-24 18:13:51.697 | INFO     | __main__:_evaluate_symbol:401 - [XAGUSD] Signal: SELL | Score: 132.0 | Primary: none
+2026-05-24 18:13:51.698 | INFO     | __main__:_evaluate_symbol:403 - [XAGUSD] Breakdown: {'htf_trend_aligned': 20.0, 'in_premium_zone': 15.0, 'valid_market_structure': 10.0, 'regime_not_accumulation': 5.0, 'ltf_sweep_confirmation': 15.0, 'wyckoff_phase_d': 12.0, 'wyckoff_sos_volume': 15.0, 'sweep_wick': 10.0, 'body_close_valid': 10.0, 'in_active_session': 10.0, 'no_news': 5.0}
+2026-05-24 18:13:51.698 | INFO     | __main__:_evaluate_symbol:403 - [XAGUSD] Breakdown: {'htf_trend_aligned': 20.0, 'in_premium_zone': 15.0, 'valid_market_structure': 10.0, 'regime_not_accumulation': 5.0, 'ltf_sweep_confirmation': 15.0, 'wyckoff_phase_d': 12.0, 'wyckoff_sos_volume': 15.0, 'sweep_wick': 10.0, 'body_close_valid': 10.0, 'in_active_session': 10.0, 'no_news': 5.0}
+2026-05-24 18:13:51.699 | INFO     | __main__:_evaluate_symbol:415 - [XAGUSD] Sin patrón primario, saltando (score=132.0)
+2026-05-24 18:13:51.699 | INFO     | __main__:_evaluate_symbol:415 - [XAGUSD] Sin patrón primario, saltando (score=132.0)
+2026-05-24 18:13:51.700 | INFO     | __main__:_evaluate:368 - Evaluation completed at 2026-05-24 18:13:51.700207
+2026-05-24 18:13:51.700 | INFO     | __main__:_evaluate:368 - Evaluation completed at 2026-05-24 18:13:51.700207
+2026-05-24 18:13:51.700 | INFO     | __main__:_evaluate:369 - ========================================
+2026-05-24 18:13:51.700 | INFO     | __main__:_evaluate:369 - ========================================
+2026-05-24 18:13:51.700 | INFO     | __main__:start:321 - Bot running. Press Ctrl+C to stop.
+2026-05-24 18:13:51.700 | INFO     | __main__:start:321 - Bot running. Press Ctrl+C to stop.
+2026-05-24 18:13:56.722 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:01.739 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:04.829 | INFO     | src.scheduler.timeframe_scheduler:_run_loop:83 - New M1 candle detected
+2026-05-24 18:14:04.829 | INFO     | src.scheduler.timeframe_scheduler:_run_loop:83 - New M1 candle detected
+2026-05-24 18:14:04.831 | INFO     | __main__:_on_new_candle:346 - New M1 candle at 2026-05-24 23:10:00+00:00
+2026-05-24 18:14:04.831 | INFO     | __main__:_on_new_candle:346 - New M1 candle at 2026-05-24 23:10:00+00:00
+2026-05-24 18:14:04.832 | INFO     | __main__:_evaluate:350 - ========================================
+2026-05-24 18:14:04.832 | INFO     | __main__:_evaluate:350 - ========================================
+2026-05-24 18:14:04.832 | INFO     | __main__:_evaluate:351 - SMC Evaluation started at 2026-05-24 18:14:04.832511
+2026-05-24 18:14:04.832 | INFO     | __main__:_evaluate:351 - SMC Evaluation started at 2026-05-24 18:14:04.832511
+2026-05-24 18:14:05.761 | ERROR    | __main__:_evaluate:363 - Error evaluating XAUUSD: name 'find_swing_points' is not defined
+2026-05-24 18:14:05.761 | ERROR    | __main__:_evaluate:363 - Error evaluating XAUUSD: name 'find_swing_points' is not defined
+2026-05-24 18:14:06.749 | INFO     | __main__:_evaluate_symbol:401 - [XAGUSD] Signal: SELL | Score: 132.0 | Primary: none
+2026-05-24 18:14:06.749 | INFO     | __main__:_evaluate_symbol:401 - [XAGUSD] Signal: SELL | Score: 132.0 | Primary: none
+2026-05-24 18:14:06.752 | INFO     | __main__:_evaluate_symbol:403 - [XAGUSD] Breakdown: {'htf_trend_aligned': 20.0, 'in_premium_zone': 15.0, 'valid_market_structure': 10.0, 'regime_not_accumulation': 5.0, 'ltf_sweep_confirmation': 15.0, 'wyckoff_phase_d': 12.0, 'wyckoff_sos_volume': 15.0, 'sweep_wick': 10.0, 'body_close_valid': 10.0, 'in_active_session': 10.0, 'no_news': 5.0}
+2026-05-24 18:14:06.752 | INFO     | __main__:_evaluate_symbol:403 - [XAGUSD] Breakdown: {'htf_trend_aligned': 20.0, 'in_premium_zone': 15.0, 'valid_market_structure': 10.0, 'regime_not_accumulation': 5.0, 'ltf_sweep_confirmation': 15.0, 'wyckoff_phase_d': 12.0, 'wyckoff_sos_volume': 15.0, 'sweep_wick': 10.0, 'body_close_valid': 10.0, 'in_active_session': 10.0, 'no_news': 5.0}
+2026-05-24 18:14:06.753 | INFO     | __main__:_evaluate_symbol:415 - [XAGUSD] Sin patrón primario, saltando (score=132.0)
+2026-05-24 18:14:06.753 | INFO     | __main__:_evaluate_symbol:415 - [XAGUSD] Sin patrón primario, saltando (score=132.0)
+2026-05-24 18:14:06.754 | INFO     | __main__:_evaluate:368 - Evaluation completed at 2026-05-24 18:14:06.754134
+2026-05-24 18:14:06.754 | INFO     | __main__:_evaluate:368 - Evaluation completed at 2026-05-24 18:14:06.754134
+2026-05-24 18:14:06.755 | INFO     | __main__:_evaluate:369 - ========================================
+2026-05-24 18:14:06.755 | INFO     | __main__:_evaluate:369 - ========================================
+2026-05-24 18:14:06.756 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:11.771 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:16.786 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:21.798 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:26.815 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:31.828 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:36.838 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:41.858 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:46.876 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:51.894 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:14:56.916 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:15:01.874 | INFO     | src.scheduler.timeframe_scheduler:_run_loop:83 - New M15 candle detected
+2026-05-24 18:15:01.874 | INFO     | src.scheduler.timeframe_scheduler:_run_loop:83 - New M15 candle detected
+2026-05-24 18:15:01.874 | INFO     | __main__:_on_new_candle:346 - New M15 candle at 2026-05-24 22:15:00+00:00
+2026-05-24 18:15:01.874 | INFO     | __main__:_on_new_candle:346 - New M15 candle at 2026-05-24 22:15:00+00:00
+2026-05-24 18:15:01.874 | INFO     | __main__:_evaluate:350 - ========================================
+2026-05-24 18:15:01.874 | INFO     | __main__:_evaluate:350 - ========================================
+2026-05-24 18:15:01.874 | INFO     | __main__:_evaluate:351 - SMC Evaluation started at 2026-05-24 18:15:01.874955
+2026-05-24 18:15:01.874 | INFO     | __main__:_evaluate:351 - SMC Evaluation started at 2026-05-24 18:15:01.874955
+2026-05-24 18:15:02.074 | DEBUG    | src.core.state_persistence:save_daily_state:82 - Daily state saved: date=2026-05-24, loss=0.0, trades=0
+2026-05-24 18:15:02.792 | ERROR    | __main__:_evaluate:363 - Error evaluating XAUUSD: name 'find_swing_points' is not defined
+2026-05-24 18:15:02.792 | ERROR    | __main__:_evaluate:363 - Error evaluating XAUUSD: name 'find_swing_points' is not defined
+2026-05-24 18:15:03.755 | INFO     | __main__:_evaluate_symbol:401 - [XAGUSD] Signal: SELL | Score: 132.0 | Primary: none
+2026-05-24 18:15:03.755 | INFO     | __main__:_evaluate_symbol:401 - [XAGUSD] Signal: SELL | Score: 132.0 | Primary: none
+2026-05-24 18:15:03.755 | INFO     | __main__:_evaluate_symbol:403 - [XAGUSD] Breakdown: {'htf_trend_aligned': 20.0, 'in_premium_zone': 15.0, 'valid_market_structure': 10.0, 'regime_not_accumulation': 5.0, 'ltf_sweep_confirmation': 15.0, 'wyckoff_phase_d': 12.0, 'wyckoff_sos_volume': 15.0, 'sweep_wick': 10.0, 'body_close_valid': 10.0, 'in_active_session': 10.0, 'no_news': 5.0}
+2026-05-24 18:15:03.755 | INFO     | __main__:_evaluate_symbol:403 - [XAGUSD] Breakdown: {'htf_trend_aligned': 20.0, 'in_premium_zone': 15.0, 'valid_market_structure': 10.0, 'regime_not_accumulation': 5.0, 'ltf_sweep_confirmation': 15.0, 'wyckoff_phase_d': 12.0, 'wyckoff_sos_volume': 15.0, 'sweep_wick': 10.0, 'body_close_valid': 10.0, 'in_active_session': 10.0, 'no_news': 5.0}
+2026-05-24 18:15:03.762 | INFO     | __main__:_evaluate_symbol:415 - [XAGUSD] Sin patrón primario, saltando (score=132.0)
+2026-05-24 18:15:03.762 | INFO     | __main__:_evaluate_symbol:415 - [XAGUSD] Sin patrón primario, saltando (score=132.0)
+2026-05-24 18:15:03.764 | INFO     | __main__:_evaluate:368 - Evaluation completed at 2026-05-24 18:15:03.764343
+2026-05-24 18:15:03.764 | INFO     | __main__:_evaluate:368 - Evaluation completed at 2026-05-24 18:15:03.764343
+2026-05-24 18:15:03.764 | INFO     | __main__:_evaluate:369 - ========================================
+2026-05-24 18:15:03.764 | INFO     | __main__:_evaluate:369 - ========================================

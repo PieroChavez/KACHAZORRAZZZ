@@ -1,0 +1,340 @@
+=============================================================
+CÓDIGO MODIFICADO - SOLUCIÓN SL/TP DE TAMAÑO IRREGULAR
+ARCHIVO: src/core/strategy_engine.py
+=============================================================
+
+-------------------------------------------------------------
+MÉTODO 1: _build_order (LÍNEA 931) - Entry + SL acoplados
+-------------------------------------------------------------
+
+    def _build_order(self, direction: str, primary: Optional[Pattern], ctx: MarketContext,
+                     ltf_df: pd.DataFrame, supporting: Optional[List[Pattern]] = None,
+                     htf_patterns: Optional[Dict] = None) -> Tuple[float, float, float, float]:
+        atr_val = atr(ltf_df, 14).iloc[-1]
+        pip = self.pip
+        sl_buffer = max(atr_val * 0.5, atr_val * 0.0)
+        current_price = ltf_df["close"].iloc[-1]
+        supporting = supporting or []
+
+        # --- Coupled Entry + SL from structural levels ---
+        entry = current_price
+        sl = None
+        sl_is_tight = False
+
+        if primary is not None:
+            pattern_type = primary.type.name
+            if pattern_type.startswith("FVG") or pattern_type.startswith("VOID_SCALP"):
+                gap_entry = primary.low + (primary.high - primary.low) * 0.5
+                entry_dist = abs(current_price - gap_entry)
+                if entry_dist <= atr_val * 9.0:
+                    entry = gap_entry
+                    sl = primary.low - sl_buffer if direction == "BUY" else primary.high + sl_buffer
+                    sl_is_tight = True
+            elif pattern_type.startswith("SOS") or pattern_type.startswith("SOW"):
+                gap_entry = primary.mid
+                entry_dist = abs(current_price - gap_entry)
+                if entry_dist <= atr_val * 9.0:
+                    entry = gap_entry
+                    sl = primary.low - sl_buffer if direction == "BUY" else primary.high + sl_buffer
+                    sl_is_tight = True
+            elif pattern_type.startswith("OB"):
+                ob_entry = primary.high if direction == "SELL" else primary.low
+                entry_dist = abs(current_price - ob_entry)
+                if entry_dist <= atr_val * 12.0:
+                    entry = ob_entry
+                    sl = primary.low - sl_buffer if direction == "BUY" else primary.high + sl_buffer
+                    sl_is_tight = True
+            elif pattern_type.startswith("BOS_ZONE_RETEST"):
+                zone_boundary = primary.extra.get("zone_min") if direction == "BUY" else primary.extra.get("zone_max")
+                if zone_boundary is not None:
+                    entry = zone_boundary
+                    sl_candidate = primary.extra.get("sl_price")
+                    if sl_candidate is not None:
+                        sl = sl_candidate - sl_buffer if direction == "BUY" else sl_candidate + sl_buffer
+                        sl_is_tight = True
+            elif pattern_type.startswith("INTERVAL_POINT"):
+                ip_entry = primary.high if direction == "SELL" else primary.low
+                entry_dist = abs(current_price - ip_entry)
+                if entry_dist <= atr_val * 12.0:
+                    entry = ip_entry
+                    sl = primary.low - sl_buffer if direction == "BUY" else primary.high + sl_buffer
+                    sl_is_tight = True
+            elif pattern_type.startswith("PRICE_INTERACTION"):
+                pi_entry = primary.mid
+                entry_dist = abs(current_price - pi_entry)
+                if entry_dist <= atr_val * 12.0:
+                    entry = pi_entry
+                    sl = primary.low - sl_buffer if direction == "BUY" else primary.high + sl_buffer
+                    sl_is_tight = True
+            elif pattern_type.startswith("HARMONIC_CYCLE"):
+                hc_entry = primary.mid
+                entry_dist = abs(current_price - hc_entry)
+                if entry_dist <= atr_val * 9.0:
+                    entry = hc_entry
+                    sl = primary.low - sl_buffer if direction == "BUY" else primary.high + sl_buffer
+                    sl_is_tight = True
+            elif pattern_type.startswith("PRESSURE_ZONE"):
+                pz_entry = primary.mid
+                entry_dist = abs(current_price - pz_entry)
+                if entry_dist <= atr_val * 9.0:
+                    entry = pz_entry
+                    sl = primary.low - sl_buffer if direction == "BUY" else primary.high + sl_buffer
+                    sl_is_tight = True
+
+        if sl is None:
+            from src.utils.helpers import find_swing_points
+            highs_idx, lows_idx = find_swing_points(ltf_df, lookback=3)
+
+            if direction == "BUY":
+                best_low = None
+                for idx in reversed(lows_idx):
+                    sp = ltf_df["low"].iloc[idx]
+                    if sp < current_price:
+                        best_low = sp
+                        break
+                if best_low is not None:
+                    entry = best_low + atr_val * 0.1
+                    sl = best_low - atr_val * 0.3
+                    sl_is_tight = True
+                else:
+                    entry = current_price - atr_val * 0.15
+            else:
+                best_high = None
+                for idx in reversed(highs_idx):
+                    sp = ltf_df["high"].iloc[idx]
+                    if sp > current_price:
+                        best_high = sp
+                        break
+                if best_high is not None:
+                    entry = best_high - atr_val * 0.1
+                    sl = best_high + atr_val * 0.3
+                    sl_is_tight = True
+                else:
+                    entry = current_price + atr_val * 0.15
+
+        # --- SL: structural search if tight SL wasn't set ---
+        if not sl_is_tight:
+            sl = None
+            sweep_patterns = [p for p in supporting if p.type.name.startswith("SWEEP")]
+            matching_sweeps = [p for p in sweep_patterns if p.direction == direction]
+            if matching_sweeps:
+                best = matching_sweeps[0]
+                swept_level = best.extra.get("swept_level", best.mid)
+                if direction == "BUY":
+                    sl = swept_level - sl_buffer
+                else:
+                    sl = swept_level + sl_buffer
+
+            if sl is None:
+                for p in supporting:
+                    if p.type.name.startswith("INTERVAL_POINT") and p.direction == direction:
+                        sl = p.low - sl_buffer if direction == "BUY" else p.high + sl_buffer
+                        break
+
+            if sl is None:
+                for p in supporting:
+                    if p.type.name.startswith("PRICE_INTERACTION") and p.direction == direction:
+                        level = p.extra.get("interacted_level", p.mid)
+                        sl = level - sl_buffer if direction == "BUY" else level + sl_buffer
+                        break
+
+            if sl is None:
+                for p in supporting:
+                    if p.type.name.startswith("HARMONIC_CYCLE") and p.direction == direction:
+                        sl = p.low - sl_buffer if direction == "BUY" else p.high + sl_buffer
+                        break
+
+            if sl is None:
+                for p in supporting:
+                    if p.type == PatternType.SPRING_BULLISH and direction == "BUY":
+                        spring_low = p.extra.get("spring_low", p.low)
+                        sl = spring_low - sl_buffer
+                        break
+                    elif p.type == PatternType.UTAD_BEARISH and direction == "SELL":
+                        utad_high = p.extra.get("utad_high", p.high)
+                        sl = utad_high + sl_buffer
+                        break
+
+            if sl is None:
+                from src.utils.helpers import find_swing_points
+                highs_idx, lows_idx = find_swing_points(ltf_df, lookback=3)
+                if direction == "BUY":
+                    for idx in reversed(lows_idx):
+                        if ltf_df["low"].iloc[idx] < entry:
+                            sl = ltf_df["low"].iloc[idx] - sl_buffer
+                            break
+                    if sl is None:
+                        sl = entry - atr_val * 0.8
+                else:
+                    for idx in reversed(highs_idx):
+                        if ltf_df["high"].iloc[idx] > entry:
+                            sl = ltf_df["high"].iloc[idx] + sl_buffer
+                            break
+                    if sl is None:
+                        sl = entry + atr_val * 0.8
+
+        risk = abs(entry - sl)
+
+        # --- TP: use structural target ---
+        if getattr(self.profile, 'tp_fixed_pips', 0) > 0:
+            tp_distance = self.profile.tp_fixed_pips * pip
+            tp = entry + tp_distance if direction == "BUY" else entry - tp_distance
+        else:
+            tp = self._find_tp_target(direction, entry, sl, ltf_df, ctx, htf_patterns=htf_patterns)
+
+        reward = abs(tp - entry)
+        rr = reward / risk if risk > 0 else 0.0
+        return entry, sl, tp, rr
+
+
+-------------------------------------------------------------
+MÉTODO 2: _find_tp_target (LÍNEA 825) - TP en HTF + RR dinámico
+-------------------------------------------------------------
+
+    def _find_tp_target(self, direction: str, entry: float, sl: float, ltf_df: pd.DataFrame, ctx: MarketContext,
+                        htf_patterns: Optional[Dict] = None) -> float:
+        risk = abs(entry - sl)
+        pip = self.pip
+        atr_val = atr(ltf_df, 14).iloc[-1]
+
+        htf = ctx.htf_structure
+        candidates = []
+
+        # --- 1) HTF structural targets (professional levels) ---
+        if direction == "BUY":
+            if htf.last_swing_high and htf.last_swing_high.price > entry:
+                rr = (htf.last_swing_high.price - entry) / risk if risk > 0 else 0
+                candidates.append((htf.last_swing_high.price, rr, "HTF_SWING_HIGH"))
+            if htf.valid_range_high > entry:
+                rr = (htf.valid_range_high - entry) / risk if risk > 0 else 0
+                candidates.append((htf.valid_range_high, rr, "HTF_VALID_RANGE_HIGH"))
+        else:
+            if htf.last_swing_low and htf.last_swing_low.price < entry:
+                rr = (entry - htf.last_swing_low.price) / risk if risk > 0 else 0
+                candidates.append((htf.last_swing_low.price, rr, "HTF_SWING_LOW"))
+            if htf.valid_range_low > 0 and htf.valid_range_low < entry:
+                rr = (entry - htf.valid_range_low) / risk if risk > 0 else 0
+                candidates.append((htf.valid_range_low, rr, "HTF_VALID_RANGE_LOW"))
+
+        # --- 2) HTF Order Blocks as TP targets ---
+        if htf_patterns:
+            obs = htf_patterns.get("order_block", [])
+            for ob in obs:
+                if direction == "BUY" and ob.high > entry:
+                    rr = (ob.high - entry) / risk if risk > 0 else 0
+                    candidates.append((ob.high, rr, "HTF_OB"))
+                elif direction == "SELL" and ob.low < entry:
+                    rr = (entry - ob.low) / risk if risk > 0 else 0
+                    candidates.append((ob.low, rr, "HTF_OB"))
+
+        # --- 3) HTF equilibrium as secondary target ---
+        if htf.equilibrium_level > 0:
+            if direction == "BUY" and htf.equilibrium_level > entry:
+                rr = (htf.equilibrium_level - entry) / risk if risk > 0 else 0
+                candidates.append((htf.equilibrium_level, rr, "HTF_EQ"))
+            elif direction == "SELL" and htf.equilibrium_level < entry:
+                rr = (entry - htf.equilibrium_level) / risk if risk > 0 else 0
+                candidates.append((htf.equilibrium_level, rr, "HTF_EQ"))
+
+        # --- 4) LTF swing points as micro-targets ---
+        from src.utils.helpers import find_swing_points
+        highs_idx, lows_idx = find_swing_points(ltf_df, lookback=3)
+        if direction == "BUY":
+            for idx in highs_idx:
+                if idx >= 0 and ltf_df["high"].iloc[idx] > entry:
+                    tp_candidate = ltf_df["high"].iloc[idx]
+                    rr = (tp_candidate - entry) / risk if risk > 0 else 0
+                    candidates.append((tp_candidate, rr, "LTF_SWING"))
+            for idx in lows_idx:
+                if idx >= 0 and ltf_df["low"].iloc[idx] > entry:
+                    tp_candidate = ltf_df["low"].iloc[idx]
+                    rr = (tp_candidate - entry) / risk if risk > 0 else 0
+                    candidates.append((tp_candidate, rr, "LTF_SWING"))
+        else:
+            for idx in lows_idx:
+                if idx >= 0 and ltf_df["low"].iloc[idx] < entry:
+                    tp_candidate = ltf_df["low"].iloc[idx]
+                    rr = (entry - tp_candidate) / risk if risk > 0 else 0
+                    candidates.append((tp_candidate, rr, "LTF_SWING"))
+            for idx in highs_idx:
+                if idx >= 0 and ltf_df["high"].iloc[idx] < entry:
+                    tp_candidate = ltf_df["high"].iloc[idx]
+                    rr = (entry - tp_candidate) / risk if risk > 0 else 0
+                    candidates.append((tp_candidate, rr, "LTF_SWING"))
+
+        if not candidates:
+            return self._tp_fallback(direction, entry, risk, atr_val)
+
+        # Dynamic min RR: scales with volatility
+        atr_ratio = atr_val / (ltf_df["close"].iloc[-1] * pip)
+        if atr_ratio > 0.002:
+            rr_threshold = max(2.5, self.profile.min_rr_ratio)
+        elif atr_ratio < 0.001:
+            rr_threshold = max(1.5, self.profile.min_rr_ratio)
+        else:
+            rr_threshold = max(2.0, self.profile.min_rr_ratio)
+
+        # Cap max TP distance to avoid exaggerated targets
+        max_tp_atr_mult = 12.0
+        max_tp_distance = atr_val * max_tp_atr_mult
+
+        best = None
+        candidates.sort(key=lambda x: abs(x[0] - entry))
+        for tp, rr, src in candidates:
+            tp_distance = abs(tp - entry)
+            if rr >= rr_threshold and tp_distance <= max_tp_distance:
+                best = (tp, rr, src)
+                break
+
+        if best is None:
+            candidates.sort(key=lambda x: abs(x[0] - entry))
+            for tp, rr, src in candidates:
+                tp_distance = abs(tp - entry)
+                if tp_distance <= max_tp_distance:
+                    best = (tp, rr, src)
+                    break
+
+        if best is None:
+            candidates.sort(key=lambda x: abs(x[0] - entry))
+            best = candidates[0]
+            if best[1] < 1.0:
+                return self._tp_fallback(direction, entry, risk, atr_val)
+
+        return best[0]
+
+
+-------------------------------------------------------------
+MÉTODO 3: _tp_fallback (LÍNEA 923) - Nuevo, TP basado en ATR
+-------------------------------------------------------------
+
+    def _tp_fallback(self, direction: str, entry: float, risk: float, atr_val: float) -> float:
+        min_rr = self.profile.min_rr_ratio
+        rr_mult = max(min_rr, 2.0)
+        if direction == "BUY":
+            return entry + atr_val * rr_mult
+        else:
+            return entry - atr_val * rr_mult
+
+
+=============================================================
+CAMBIOS EN _evaluate_direction (LÍNEA 803)
+Eliminación de "context-only trade"
+=============================================================
+
+    # ANTES:
+    #   if primary is None:
+    #       if score >= self.min_score:
+    #           notes.append("Context-only trade (score ≥ umbral mínimo)")
+    #           entry, sl, tp, rr = self._build_order(direction, None, ctx, ltf_df, supporting)
+    #           ...
+    #           return TradingSignal(...)
+    #
+    # DESPUÉS:
+        if primary is None:
+            return TradingSignal(
+                direction="HOLD", entry_price=0.0, stop_loss=0.0, take_profit=0.0,
+                score=score, score_breakdown=breakdown,
+                primary_pattern=None, supporting_patterns=supporting,
+                rr_ratio=0.0, symbol=self.profile.symbol,
+                timestamp=current_time, notes=notes + ["Sin patrón primario detectado"],
+            )
