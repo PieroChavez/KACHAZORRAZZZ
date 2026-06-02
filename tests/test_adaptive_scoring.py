@@ -1,5 +1,5 @@
 import pytest
-from src.core.adaptive_scoring import AdaptiveScorer, AdaptiveWeights, PATTERN_TO_WEIGHT_MAP, CONTEXT_WEIGHT_ADJUSTMENTS
+from src.scoring.adaptive_scoring import AdaptiveScorer, AdaptiveWeights, PATTERN_TO_WEIGHT_MAP, CONTEXT_WEIGHT_ADJUSTMENTS
 from src.core.regime_detector import RegimeContext, RegimeType
 from src.core.strategy_engine import ScoringConfig
 

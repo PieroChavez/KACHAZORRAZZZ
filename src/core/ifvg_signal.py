@@ -6,7 +6,7 @@ from typing import Optional
 from enum import Enum
 from loguru import logger
 
-from .candle_closure_ratings import (
+from src.scoring.candle_closure_ratings import (
     CandleRating,
     ClosureRating,
     calculate_confluence,

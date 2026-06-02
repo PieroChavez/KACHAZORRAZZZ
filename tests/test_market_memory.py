@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from datetime import datetime
-from src.core.market_memory import MarketMemory, LevelMemory
+from src.learning.market_memory import MarketMemory, LevelMemory
 
 
 @pytest.fixture

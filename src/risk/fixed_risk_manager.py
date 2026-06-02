@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 from loguru import logger
 
-from ..core.candle_closure_ratings import CandleRating, ClosureRating
+from ..scoring.candle_closure_ratings import CandleRating, ClosureRating
 from ..utils.helpers import pip_size
 
 

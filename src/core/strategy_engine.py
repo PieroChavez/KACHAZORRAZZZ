@@ -16,8 +16,8 @@ from src.core.market_analyzer import (
 from src.core.pattern_detector import PatternDetector, Pattern, PatternType
 from src.core.vsa import VSADetector
 from src.core.regime_detector import RegimeContext, RegimeType
-from src.core.adaptive_scoring import AdaptiveScorer, AdaptiveWeights
-from src.core.distributional_score import DistributionalScorer, DistributionalScore, merge_signals
+from src.scoring.adaptive_scoring import AdaptiveScorer, AdaptiveWeights
+from src.scoring.distributional_score import DistributionalScorer, DistributionalScore, merge_signals
 from src.core.session_profiler import SessionProfiler, SessionProfile, TradingSession
 from src.utils.helpers import is_in_session, pip_size, atr, detect_killzone, Killzone
 

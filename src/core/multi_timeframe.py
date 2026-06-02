@@ -8,7 +8,7 @@ from typing import Optional, Dict, List
 from dataclasses import dataclass, field
 from loguru import logger
 
-from .candle_closure_ratings import CandleData, CandleRating, rate_candle
+from src.scoring.candle_closure_ratings import CandleData, CandleRating, rate_candle
 
 
 TIMEFRAME_ORDER = [

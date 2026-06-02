@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from src.core.distributional_score import DistributionalScorer, DistributionalScore, merge_signals
+from src.scoring.distributional_score import DistributionalScorer, DistributionalScore, merge_signals
 from src.core.regime_detector import RegimeContext, RegimeType
 
 

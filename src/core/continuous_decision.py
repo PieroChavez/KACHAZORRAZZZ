@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple
 
 import pandas as pd
 
-from src.core.distributional_score import DistributionalScore
+from src.scoring.distributional_score import DistributionalScore
 from src.core.regime_detector import RegimeContext, RegimeType
 from src.utils.helpers import atr
 

@@ -34,6 +34,6 @@ for sym in ["XAUUSDm", "XAGUSDm"]:
 
 # Check if bot process is running
 import psutil
-bot_running = any("python" in p.name() and "src.bot" in " ".join(p.cmdline()) for p in psutil.process_iter() if p.cmdline())
+bot_running = any("python" in p.name() and "src.main" in " ".join(p.cmdline()) for p in psutil.process_iter() if p.cmdline())
 print(f"\nBot process running: {bot_running}")
 mt5.shutdown()

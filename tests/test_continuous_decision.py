@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from src.core.continuous_decision import ContinuousDecider, ContinuousDecision, CONVICTION_VOLUME_MAP
-from src.core.distributional_score import DistributionalScore
+from src.scoring.distributional_score import DistributionalScore
 from src.core.regime_detector import RegimeContext, RegimeType
 
 

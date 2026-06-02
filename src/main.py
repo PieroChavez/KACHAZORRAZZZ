@@ -21,13 +21,13 @@ del _proj_root
 from src.adapters.mt5_client import MT5Client
 from src.core.multi_timeframe import MultiTimeframeFetcher
 from src.core.strategy_engine import StrategyEngine, TradingSignal, ScoringConfig
-from src.core.state_persistence import StatePersistence
+from src.utils.state_persistence import StatePersistence
 from src.core.news_calendar import NewsCalendar
 from src.core.regime_detector import RegimeDetector, RegimeContext
 from src.core.continuous_decision import ContinuousDecider, ContinuousDecision
-from src.core.market_memory import MarketMemory
+from src.learning.market_memory import MarketMemory
 from src.core.session_profiler import SessionProfiler
-from src.core.meta_learner import MetaLearner, TradeRecord
+from src.learning.meta_learner import MetaLearner, TradeRecord
 from src.risk.fixed_risk_manager import FixedRiskManager, RiskConfig, calculate_atr
 from src.executor.order_executor import OrderExecutor
 from src.scheduler.timeframe_scheduler import TimeframeScheduler

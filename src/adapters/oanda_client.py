@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import pandas as pd
 from loguru import logger
 
-from ..core.candle_closure_ratings import CandleData
+from ..scoring.candle_closure_ratings import CandleData
 
 
 @dataclass

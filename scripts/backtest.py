@@ -20,7 +20,7 @@ logger.add(sys.stderr, level="INFO")
 
 from src.core.strategy_engine import StrategyEngine, ScoringConfig
 from src.utils.helpers import pip_size
-from src.bot import SymbolProfile, StrategyParams
+from src.main import SymbolProfile, StrategyParams
 
 SYMBOL = "XAUUSDm"
 HTF_TF = mt5.TIMEFRAME_M15

@@ -1,7 +1,11 @@
 import MetaTrader5 as mt5
 mt5.initialize()
-for p in (mt5.positions_get() or []):
-    print(f'pos: ticket={p.ticket} sym={p.symbol} type={"SELL" if p.type==1 else "BUY"} vol={p.volume} entry={p.price_open} sl={p.sl} tp={p.tp} profit={p.profit:.2f}')
-if not mt5.positions_get():
-    print("No positions")
+mt5.login(196559696, '12P@ola12', 'Exness-MT5Real11')
+positions = mt5.positions_get(symbol='XAUUSDm')
+if positions:
+    for p in positions:
+        direction = "BUY" if p.type == 0 else "SELL"
+        print(f"Ticket: {p.ticket}, {direction}, Entry: {p.price_open}, Current: {p.price_current:.2f}, SL: {p.sl}, TP: {p.tp}, Profit: ${p.profit:.2f}")
+else:
+    print("No open positions for XAUUSDm")
 mt5.shutdown()

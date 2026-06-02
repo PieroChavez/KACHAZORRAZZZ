@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, timedelta
 from pathlib import Path
-from src.core.meta_learner import MetaLearner, TradeRecord, RegimePerformance, PatternPerformance
+from src.learning.meta_learner import MetaLearner, TradeRecord, RegimePerformance, PatternPerformance
 from src.core.regime_detector import RegimeType, REGIME_PATTERN_MULTIPLIERS
 from src.core.strategy_engine import ScoringConfig
 

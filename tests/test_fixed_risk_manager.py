@@ -1,7 +1,7 @@
 import pytest
 import math
 from src.risk.fixed_risk_manager import FixedRiskManager, RiskConfig, PositionSize, calculate_atr
-from src.core.candle_closure_ratings import CandleData, ClosureRating, CandleRating
+from src.scoring.candle_closure_ratings import CandleData, ClosureRating, CandleRating
 
 
 @pytest.fixture
