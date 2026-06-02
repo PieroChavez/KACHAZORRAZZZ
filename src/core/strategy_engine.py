@@ -20,6 +20,7 @@ from src.scoring.adaptive_scoring import AdaptiveScorer, AdaptiveWeights
 from src.scoring.distributional_score import DistributionalScorer, DistributionalScore, merge_signals
 from src.core.session_profiler import SessionProfiler, SessionProfile, TradingSession
 from src.utils.helpers import is_in_session, pip_size, atr, detect_killzone, Killzone
+from src.neural.integrator import get_advisor
 
 TIMEFRAME_GROUPS = {
     "HTF": ["4H", "3H", "2H", "1H"],
@@ -147,6 +148,7 @@ class StrategyEngine:
         self.adaptive_scorer = AdaptiveScorer(self.weights)
         self.distributional_scorer = DistributionalScorer()
         self.session_profiler = SessionProfiler()
+        self.neural_advisor = get_advisor()
 
     def _pick_tf(self, timeframes: dict, group: str) -> pd.DataFrame:
         for tf in TIMEFRAME_GROUPS.get(group, []):
@@ -305,6 +307,21 @@ class StrategyEngine:
 
         direction = dist.direction
         conviction = dist.conviction
+
+        if self.neural_advisor.available and direction in ("BUY", "SELL"):
+            nn_prob = self.neural_advisor.predict_win_probability(
+                score=dist.mean,
+                conviction=conviction,
+                regime=regime.regime.value if regime else "RANGING",
+                session=session_profile.session.value if session_profile else "LONDON_OPEN",
+                primary_pattern=best.primary_pattern.type.value if best and best.primary_pattern else None,
+                direction=direction,
+                regime_confidence=regime.confidence if regime else 0.0,
+            )
+            if nn_prob is not None:
+                conviction = self.neural_advisor.adjust_conviction(conviction, win_prob=nn_prob)
+                dist.conviction = conviction
+                dist.notes.append(f"NN: win_prob={nn_prob:.0%} conv={conviction:.0%}")
 
         if direction == "HOLD" or conviction < 0.3:
             best = buy_signal if buy_signal.score >= sell_signal.score else sell_signal
