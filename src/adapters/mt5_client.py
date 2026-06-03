@@ -5,10 +5,19 @@ import time
 import MetaTrader5 as mt5
 import pandas as pd
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Optional
 from loguru import logger
 
 from ..scoring.candle_closure_ratings import CandleData
+
+
+# Symbol alias map: canonical name -> list of known broker variants to try
+SYMBOL_ALIASES = {
+    "USDOLLAR": ["USDOLLAR", "USDollar", "USDX", "DXY", "DX"],
+    "US100": ["US100", "NAS100", "USTEC", "USTEC_x100"],
+    "US30": ["US30", "DJI30"],
+    "SPX500": ["SPX500", "US500"],
+}
 
 
 class MT5Client:
@@ -20,6 +29,37 @@ class MT5Client:
         self.password = password
         self.server = server
         self.connected = False
+        self._symbol_cache: Dict[str, str] = {}
+
+    def resolve_symbol(self, symbol: str) -> str:
+        """Try to resolve a canonical symbol name to the broker's actual symbol.
+        Caches successful resolution to avoid repeated broker calls.
+
+        Args:
+            symbol: The canonical symbol name (e.g. 'USDOLLAR')
+
+        Returns:
+            The broker's actual symbol name, or the original if no alias found
+        """
+        if symbol in self._symbol_cache:
+            return self._symbol_cache[symbol]
+
+        if not self.ensure_connected():
+            return symbol
+
+        if mt5.symbol_info(symbol) is not None:
+            self._symbol_cache[symbol] = symbol
+            return symbol
+
+        aliases = SYMBOL_ALIASES.get(symbol, [])
+        for alias in aliases:
+            if mt5.symbol_info(alias) is not None:
+                self._symbol_cache[symbol] = alias
+                logger.info(f"Symbol '{symbol}' resolved to '{alias}' on this broker")
+                return alias
+
+        logger.warning(f"Could not resolve symbol '{symbol}' - tried aliases: {aliases}")
+        return symbol
 
     def connect(self) -> bool:
         mt5.shutdown()
@@ -89,22 +129,24 @@ class MT5Client:
         }
 
     def _ensure_symbol(self, symbol: str) -> bool:
+        resolved = self.resolve_symbol(symbol)
         for attempt in range(3):
-            if mt5.symbol_select(symbol, True):
+            if mt5.symbol_select(resolved, True):
                 return True
             if attempt == 0:
-                logger.warning(f"Could not select {symbol}, retrying...")
+                logger.warning(f"Could not select {resolved} (from '{symbol}'), retrying...")
             time.sleep(2)
-        logger.error(f"Could not select {symbol} after 3 attempts")
+        logger.error(f"Could not select {resolved} (from '{symbol}') after 3 attempts")
         return False
 
     def get_candles(self, symbol: str, timeframe: int = 60,
                     count: int = 100) -> list[CandleData]:
         self.ensure_connected()
+        resolved = self.resolve_symbol(symbol)
         if not self._ensure_symbol(symbol):
             return []
 
-        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
+        rates = mt5.copy_rates_from_pos(resolved, timeframe, 0, count)
         if rates is None or len(rates) == 0:
             return []
 

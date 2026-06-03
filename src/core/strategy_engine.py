@@ -309,12 +309,13 @@ class StrategyEngine:
         conviction = dist.conviction
 
         if self.neural_advisor.available and direction in ("BUY", "SELL"):
+            nn_best = buy_signal if buy_signal.score >= sell_signal.score else sell_signal
             nn_prob = self.neural_advisor.predict_win_probability(
                 score=dist.mean,
                 conviction=conviction,
                 regime=regime.regime.value if regime else "RANGING",
                 session=session_profile.session.value if session_profile else "LONDON_OPEN",
-                primary_pattern=best.primary_pattern.type.value if best and best.primary_pattern else None,
+                primary_pattern=nn_best.primary_pattern.type.value if nn_best and nn_best.primary_pattern else None,
                 direction=direction,
                 regime_confidence=regime.confidence if regime else 0.0,
             )

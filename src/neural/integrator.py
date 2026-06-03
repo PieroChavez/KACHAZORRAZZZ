@@ -72,14 +72,13 @@ class NeuralAdvisor:
             return 0.85
         return 1.0
 
-    def adjust_conviction(self, base_conviction: float, **context) -> float:
-        prob = self.predict_win_probability(**context)
-        if prob is None:
+    def adjust_conviction(self, base_conviction: float, win_prob: Optional[float] = None) -> float:
+        if win_prob is None:
             return base_conviction
-        mult = self.conviction_multiplier(prob)
+        mult = self.conviction_multiplier(win_prob)
         adjusted = base_conviction * mult
         logger.debug(
-            f"NN: win_prob={prob:.2f} mult={mult:.2f} "
+            f"NN: win_prob={win_prob:.2f} mult={mult:.2f} "
             f"conviction {base_conviction:.2f} -> {adjusted:.2f}"
         )
         return min(adjusted, 1.0)

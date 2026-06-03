@@ -90,7 +90,8 @@ class OrderExecutor:
                            message=f"Rejected by broker: {result.comment if result else 'unknown'}",
                            error_code=result.retcode if result else None)
 
-    def place_pending_entry(self, signal, volume: float, entry_price: float) -> OrderResult:
+    def place_pending_entry(self, signal, volume: float, entry_price: float,
+                            custom_tp_distance: float = None) -> OrderResult:
         """Place a pending LIMIT or STOP order at the specified entry price.
         Chooses LIMIT if price would need to retrace, STOP if price would need to break out.
 
@@ -98,6 +99,8 @@ class OrderExecutor:
             signal: TradingSignal object
             volume: Lot size
             entry_price: Price at which to place the pending order
+            custom_tp_distance: If set, override TP distance (pips) for this order
+                               (used for scale entries with different TP ratios)
 
         Returns:
             OrderResult with the pending order ticket
@@ -126,7 +129,7 @@ class OrderExecutor:
             order_type = mt5.ORDER_TYPE_SELL_LIMIT
 
         sl_dist = abs(signal.stop_loss - signal.entry_price) if signal.stop_loss else 0
-        tp_dist = abs(signal.take_profit - signal.entry_price) if signal.take_profit else 0
+        tp_dist = custom_tp_distance if custom_tp_distance is not None else (abs(signal.take_profit - signal.entry_price) if signal.take_profit else 0)
         if is_buy:
             adjusted_sl = round(entry_price - sl_dist, symbol_info["digits"])
             adjusted_tp = round(entry_price + tp_dist, symbol_info["digits"])

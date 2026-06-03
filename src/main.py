@@ -32,6 +32,7 @@ from src.risk.fixed_risk_manager import FixedRiskManager, RiskConfig, calculate_
 from src.executor.order_executor import OrderExecutor
 from src.scheduler.timeframe_scheduler import TimeframeScheduler
 from src.utils.helpers import pip_size, is_in_session
+from src.strategies.fractal_cascade import FractalCascadeStrategy
 import pandas as pd
 
 
@@ -281,12 +282,15 @@ class TradingBot:
         for sym in self.active_symbols:
             sym_cfg = str_cfg["symbols"].get(sym, {})
             profile = build_symbol_profile(sym_cfg)
-            engine = StrategyEngine(
-                profile=profile, params=self.params,
-                weights=scoring_cfg, min_score=self.min_score,
-                high_confidence_score=self.high_confidence_score,
-                min_net_score=self.params.min_net_score,
-            )
+            if sym == "XAUEURm":
+                engine = FractalCascadeStrategy(sym, self.mt5, self.fetcher)
+            else:
+                engine = StrategyEngine(
+                    profile=profile, params=self.params,
+                    weights=scoring_cfg, min_score=self.min_score,
+                    high_confidence_score=self.high_confidence_score,
+                    min_net_score=self.params.min_net_score,
+                )
             self.symbols[sym] = {
                 "profile": profile,
                 "engine": engine,
@@ -400,6 +404,9 @@ class TradingBot:
             return
 
         for sym in self.active_symbols:
+            self.fetcher.init_historical(sym, count=5000)
+
+        for sym in self.active_symbols:
             stale = self.mt5.get_pending_orders(sym)
             if stale:
                 logger.info(f"[{sym}] Limpiando {len(stale)} órdenes pendientes del inicio anterior")
@@ -414,6 +421,9 @@ class TradingBot:
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self.loop.run_until_complete(self._initialize_state())
+
+        # Auto-entrenar modelo neural si hay datos disponibles
+        self._auto_train_model()
 
         self.scheduler.add_callback(self._on_new_candle)
         self.scheduler.start()
@@ -465,15 +475,14 @@ class TradingBot:
         self._evaluate()
 
     def _fetch_dxy_data(self) -> Optional[pd.DataFrame]:
-        if self._dxy_unavailable:
-            return None
-        dxy_symbol = getattr(self.params, "dxy_symbol", "DX")
+        dxy_symbol = getattr(self.params, "dxy_symbol", "USDOLLAR")
         if not dxy_symbol:
             return None
         try:
-            candles = self.mt5.get_candles(dxy_symbol, timeframe=15, count=60)
+            resolved = self.mt5.resolve_symbol(dxy_symbol)
+            candles = self.mt5.get_candles(resolved, timeframe=15, count=60)
             if not candles:
-                self._dxy_unavailable = True
+                logger.warning(f"No DXY data for '{resolved}' (from '{dxy_symbol}')")
                 return None
             records = []
             for c in candles:
@@ -483,12 +492,35 @@ class TradingBot:
                 })
             df = pd.DataFrame(records)
             df["time"] = pd.to_datetime(df["time"])
-            logger.info(f"DXY data fetched: {len(candles)} candles @ M15")
+            logger.info(f"DXY data fetched: {len(candles)} candles @ M15 (symbol={resolved})")
             return df
         except Exception as e:
-            self._dxy_unavailable = True
-            logger.warning(f"DXY fetch failed, disabling: {e}")
+            logger.warning(f"DXY fetch failed: {e}")
             return None
+
+    def _auto_train_model(self):
+        """Auto-train the neural model if trade data is available."""
+        try:
+            from src.neural.trainer import train
+            from pathlib import Path
+            db_path = Path(__file__).parent.parent / "data" / "meta_learning.db"
+            if not db_path.exists():
+                logger.info("No meta_learning.db found, skipping auto-train")
+                return
+            import sqlite3
+            conn = sqlite3.connect(str(db_path))
+            count = conn.execute(
+                "SELECT COUNT(*) FROM trade_records WHERE profit IS NOT NULL AND profit != 0"
+            ).fetchone()[0]
+            conn.close()
+            if count < 3:
+                logger.info(f"Only {count} trades with profit, need at least 3 for training")
+                return
+            logger.info(f"Auto-training neural model with {count} trades...")
+            train(db_path=db_path, epochs=200, lr=0.005, force=True)
+            logger.info("Auto-training complete")
+        except Exception as e:
+            logger.warning(f"Auto-train skipped: {e}")
 
     def _evaluate(self):
         logger.info("=" * 40)
@@ -524,7 +556,7 @@ class TradingBot:
             return
 
         ltf_df = None
-        for tf in ["1min", "3min", "5min"]:
+        for tf in ["5min"]:
             df = timeframes.get(tf)
             if df is not None and len(df) >= 50:
                 ltf_df = df
@@ -535,6 +567,15 @@ class TradingBot:
         self._manage_pending_orders(symbol, ltf_df)
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        if isinstance(engine, FractalCascadeStrategy):
+            engine.evaluate(timeframes, now)
+            status = engine.get_status()
+            logger.info(f"[{symbol}] Cazador: {status.get('active_fractals',0)} fractales, "
+                         f"{status.get('alerts',0)} alertas de proximidad, "
+                         f"{status.get('active_packs',0)} packs activos")
+            return
+
         news_active = self.news_calendar.is_high_impact_active(now, symbol)
 
         htf_df = engine._pick_tf(timeframes, "HTF")
@@ -774,6 +815,7 @@ class TradingBot:
         entry_price = signal.entry_price
 
         symbol_info_2 = self.mt5.get_symbol_info(symbol)
+        digits = symbol_info_2.get("digits", 5) if symbol_info_2 else 5
         if symbol_info_2:
             if signal.direction == "SELL" and entry_price <= symbol_info_2["bid"]:
                 entry_price = symbol_info_2["bid"] + atr_val * 0.5
@@ -805,21 +847,26 @@ class TradingBot:
                 else:
                     logger.info(f"[{symbol}] Ya hay {len(existing)} órdenes pendientes {signal.direction} activas @ {old_entry:.5f}, saltando nuevo batch")
                     return
+            sl_distance_pips = abs(signal.entry_price - signal.stop_loss) if signal.stop_loss else 0
             zone_id = str(uuid4())
             pend_tickets = []
             logger.info(f"[{symbol}] Scale pending: {scale_n}x{per_unit} lots @ {entry_price}, zone={zone_id[:8]}")
             for i in range(scale_n):
-                result = self.executor.place_pending_entry(signal, per_unit, entry_price)
+                tp_ratio = i + 1
+                tp_distance = sl_distance_pips * tp_ratio
+                result = self.executor.place_pending_entry(signal, per_unit, entry_price, custom_tp_distance=tp_distance)
                 if result.success:
                     pend_tickets.append(result.order_ticket)
+                    tp_price = round(entry_price + tp_distance, digits) if signal.direction == "BUY" else round(entry_price - tp_distance, digits)
                     self.pending_orders[result.order_ticket] = {
                         "symbol": symbol, "direction": signal.direction,
                         "poi_level": entry_price, "placed_at": datetime.now(timezone.utc).replace(tzinfo=None),
                         "zone_id": zone_id, "volume": per_unit,
-                        "sl": signal.stop_loss, "tp": signal.take_profit,
+                        "sl": signal.stop_loss, "tp": tp_price,
+                        "tp_ratio": tp_ratio, "position_index": i,
                     }
                 else:
-                    logger.warning(f"[{symbol}] Pending order {i+1}/{scale_n} failed: {result.message}")
+                    logger.warning(f"[{symbol}] Pending order {i+1}/{scale_n} (TP 1:{tp_ratio}) failed: {result.message}")
             if pend_tickets:
                 self._pending_batches.setdefault(symbol, {})[zone_id] = {
                     "tickets": pend_tickets,
@@ -948,6 +995,8 @@ class TradingBot:
                     "original_sl": info.get("sl", 0), "entry_price": pos["price_open"],
                     "hit_50pct": False, "managed_tp": info.get("tp", 0),
                     "is_long": pos["type"] == "buy",
+                    "tp_ratio": info.get("tp_ratio", 1),
+                    "position_index": info.get("position_index", 0),
                 }
             if ticket in self.pending_orders:
                 del self.pending_orders[ticket]
@@ -974,12 +1023,16 @@ class TradingBot:
             }
             for ft in filled:
                 pos = next((p for p in open_positions if p["ticket"] == ft), None)
+                ticket_info = self.pending_orders.get(ft, {})
                 if pos:
                     self.position_states[ft] = {
                         "be_activated": False, "trail_activated": False,
                         "original_sl": pend_batch["sl"], "entry_price": pos["price_open"],
-                        "hit_50pct": False, "managed_tp": pend_batch["tp"],
+                        "hit_50pct": False,
+                        "managed_tp": ticket_info.get("tp", pend_batch["tp"]),
                         "zone_id": zone_id,
+                        "tp_ratio": ticket_info.get("tp_ratio", 1),
+                        "position_index": ticket_info.get("position_index", 0),
                     }
             logger.info(f"[{symbol}] Batch {zone_id[:8]} promoted: {len(filled)} filled")
 
@@ -1134,7 +1187,7 @@ class TradingBot:
 
         timeframes = self.fetcher.get_dataframes(symbol, count=300)
         ltf_df = None
-        for tf in ["1min", "3min", "5min"]:
+        for tf in ["5min"]:
             df = timeframes.get(tf)
             if df is not None and len(df) >= 50:
                 ltf_df = df
@@ -1244,23 +1297,33 @@ class TradingBot:
                                 state["trail_activated"] = True
                                 logger.info(f"[{symbol}] Trail inmediato {ticket}: SL {new_sl} (ATR*2.5)")
             price_profit = current_price - entry_price if is_long else entry_price - current_price
-            tp_distance = abs(original_tp - entry_price) if original_tp else 999
             original_sl_price = state.get("original_sl", current_sl)
             sl_distance = abs(entry_price - original_sl_price) if original_sl_price else 0
 
-            if not be_activated and tp_distance > 0:
-                pct_of_tp = price_profit / tp_distance
-                if pct_of_tp >= 0.2:
-                    min_pip_pips = 5.0
-                    buffer = max(pip * min_pip_pips, pip * 0.05)
-                    be_sl = round(entry_price + buffer, digit) if is_long else round(entry_price - buffer, digit)
+            # --- BREAKEVEN +10 Pips al alcanzar ratio 1:1 ---
+            # Cuando el precio alcanza 1:1 (price_profit >= sl_distance),
+            # mover SL de TODAS las posiciones del batch a entry + 10 pips
+            if not be_activated and sl_distance > 0:
+                pct_of_rr = price_profit / sl_distance
+                if pct_of_rr >= 1.0:
+                    be_buffer = max(pip * 10.0, pip * 0.05)
+                    be_sl = round(entry_price + be_buffer, digit) if is_long else round(entry_price - be_buffer, digit)
                     if is_long:
                         new_sl = max(new_sl, be_sl)
                     else:
                         new_sl = min(new_sl, be_sl)
                     be_activated = True
                     state["be_activated"] = True
-                    logger.info(f"[{symbol}] BE activado a {pct_of_tp*100:.0f}% de TP ({price_profit/pip:.0f}p)")
+                    logger.info(f"[{symbol}] BE+10 activado {ticket} al 1:1 ({price_profit/pip:.0f}p), SL -> {be_sl}")
+
+                    # Activar BE+10 en TODAS las posiciones del mismo batch
+                    zone_id = state.get("zone_id")
+                    if zone_id:
+                        for other_t, other_state in self.position_states.items():
+                            if other_t != ticket and other_state.get("zone_id") == zone_id:
+                                if not other_state.get("be_activated"):
+                                    other_state["be_activated"] = True
+                                    logger.info(f"[{symbol}] BE+10 propagado a posición hermana {other_t}")
 
             close_trade = False
             min_rev = self.params.min_reversal_score
@@ -1292,44 +1355,37 @@ class TradingBot:
                     open_by_ticket.pop(ticket, None)
                 continue
 
-            # --- Trailing stop: ATR en M5/M15 para evitar ruido de M1 ---
-            if be_was_active:
-                trail_tf = timeframes.get("5min") if timeframes.get("5min") is not None else (timeframes.get("15min") if timeframes.get("15min") is not None else ltf_df)
-                trail_atr_base = atr(trail_tf, 14).iloc[-1] * 2.5
-                trail_atr = max(trail_atr_base, pip * 15)
-                if is_long:
-                    candidate_sl = round(current_price - trail_atr, digit)
-                    if candidate_sl > new_sl:
-                        new_sl = candidate_sl
-                        state["trail_activated"] = True
-                        logger.info(f"[{symbol}] Trail SL {ticket}: {current_sl} -> {new_sl} (ATR*2.5 M5)")
-                else:
-                    candidate_sl = round(current_price + trail_atr, digit)
-                    if candidate_sl < new_sl:
-                        new_sl = candidate_sl
-                        state["trail_activated"] = True
-                        logger.info(f"[{symbol}] Trail SL {ticket}: {current_sl} -> {new_sl} (ATR*2.5 M5)")
+            # --- TRAILING STOP + TP DINÁMICO POR FUERZA DE TENDENCIA ---
+            # Solo para posiciones 2 y 3 (tp_ratio >= 2) con BE activo
+            tp_ratio = state.get("tp_ratio", 1)
+            if be_activated and tp_ratio >= 2:
+                ultimas_5 = ltf_df.tail(5)
+                cuerpos = (ultimas_5["close"] - ultimas_5["open"]).abs()
+                atr14 = atr(ltf_df, 14).iloc[-1]
+                strong_trend = cuerpos.max() > 1.5 * atr14
 
-            # --- Progressive TP expansion for runners ---
-            if be_activated and original_tp and tp_distance > 0:
-                current_stage = state.get("tp_expanded", 0)
-                thresholds = [0.50, 0.65, 0.80]
-                multipliers = [1.5, 2.0, 2.5]
-                base_distance = state.get("original_tp_distance", tp_distance)
-                if current_stage < len(thresholds):
-                    pct_of_tp = price_profit / tp_distance
-                    threshold = thresholds[current_stage]
-                    if pct_of_tp >= threshold:
-                        mult = multipliers[current_stage]
-                        add_distance = base_distance * mult
-                        if is_long:
-                            new_tp = round(entry_price + add_distance, digit)
-                        else:
-                            new_tp = round(entry_price - add_distance, digit)
-                        state["managed_tp"] = new_tp
-                        state["tp_expanded"] = current_stage + 1
-                        logger.info(f"[{symbol}] TP expandido {ticket} stage {current_stage+1}: "
-                                    f"{current_tp} -> {new_tp} ({mult:.1f}x base)")
+                if strong_trend:
+                    trail_tf = timeframes.get("5min") if timeframes.get("5min") is not None else ltf_df
+                    ultimas_5 = trail_tf.tail(5)
+
+                    if is_long:
+                        trail_sl_candidate = round(ultimas_5["low"].min(), digit)
+                        if trail_sl_candidate > new_sl:
+                            delta_sl = trail_sl_candidate - new_sl
+                            new_sl = trail_sl_candidate
+                            new_tp = round(new_tp + delta_sl, digit)
+                            state["trail_activated"] = True
+                            logger.info(f"[{symbol}] Trail FUERTE {ticket} (pos {tp_ratio}): "
+                                        f"SL {current_sl} -> {new_sl}, TP {current_tp} -> {new_tp}")
+                    else:
+                        trail_sl_candidate = round(ultimas_5["high"].max(), digit)
+                        if trail_sl_candidate < new_sl:
+                            delta_sl = new_sl - trail_sl_candidate
+                            new_sl = trail_sl_candidate
+                            new_tp = round(new_tp - delta_sl, digit)
+                            state["trail_activated"] = True
+                            logger.info(f"[{symbol}] Trail FUERTE {ticket} (pos {tp_ratio}): "
+                                        f"SL {current_sl} -> {new_sl}, TP {current_tp} -> {new_tp}")
 
             # --- Modify SL/TP por posición ---
             if new_sl != current_sl or new_tp != current_tp:
@@ -1378,12 +1434,16 @@ class TradingBot:
                 logger.info(f"[{symbol}] Reversal: cancelled pending {rev_dir} order {t}")
 
         # --- Clean up positions closed by SL/TP at broker ---
+        tp1_closed_zone = None
         for ticket, state in list(self.position_states.items()):
             if state.get("symbol") != symbol:
                 continue
             if ticket not in open_by_ticket:
                 if state.get("entry_price"):
-                    logger.info(f"[{symbol}] Position {ticket} vanished (SL/TP hit): recording trade")
+                    is_tp1 = state.get("position_index") == 0 or state.get("tp_ratio") == 1
+                    if is_tp1:
+                        tp1_closed_zone = state.get("zone_id")
+                        logger.info(f"[{symbol}] TP1 (pos 1) hit - securing runners in zone {tp1_closed_zone}")
                     self._record_trade(
                         symbol=symbol,
                         position={
@@ -1398,6 +1458,18 @@ class TradingBot:
                         exit_reason="sl_tp",
                     )
                 self.position_states.pop(ticket, None)
+
+        # --- Regla de Aseguramiento: TP1 alcanzado → asegurar posiciones 2 y 3 ---
+        if tp1_closed_zone:
+            for rticket, rstate in list(self.position_states.items()):
+                if rstate.get("zone_id") == tp1_closed_zone and not rstate.get("be_activated"):
+                    if rstate.get("entry_price") and rstate.get("is_long") is not None:
+                        is_long_r = rstate["is_long"]
+                        be_buffer = max(pip * 10.0, pip * 0.05)
+                        be_sl_r = round(rstate["entry_price"] + be_buffer, digit) if is_long_r else round(rstate["entry_price"] - be_buffer, digit)
+                        rstate["be_activated"] = True
+                        self.executor.modify_position(rticket, be_sl_r, None)
+                        logger.info(f"[{symbol}] TP1 security: runner {rticket} SL -> {be_sl_r} (entry+10pips)")
 
     def _manage_positions_light(self, symbol: str):
         """Lightweight position management on every 1-min candle.
@@ -1445,7 +1517,7 @@ class TradingBot:
             state = self.position_states[ticket]
             if state.get("is_long") is None:
                 continue
-            if state.get("be_activated") and state.get("tp_expanded", 0) >= 3:
+            if state.get("be_activated"):
                 continue
 
             is_long = state["is_long"]
@@ -1453,48 +1525,37 @@ class TradingBot:
             current_price = pos["price_current"]
             current_sl = pos["sl"]
             current_tp = pos["tp"]
-            original_tp = state.get("managed_tp", current_tp)
+            original_sl_price = state.get("original_sl", current_sl)
+            sl_distance = abs(entry_price - original_sl_price) if original_sl_price else 0
 
             price_profit = current_price - entry_price if is_long else entry_price - current_price
-            tp_distance = abs(original_tp - entry_price) if original_tp else 999
 
             new_sl = current_sl
             new_tp = current_tp
             modified = False
 
-            # BE activation at 20% of TP
-            if not state.get("be_activated") and tp_distance > 0:
-                pct_of_tp = price_profit / tp_distance
-                if pct_of_tp >= 0.2:
-                    min_buffer_pips = 5.0
-                    buffer = max(pip * min_buffer_pips, pip * 0.05)
-                    be_sl = round(entry_price + buffer, digit) if is_long else round(entry_price - buffer, digit)
+            # BE activation at 1:1 RR (light management catch)
+            if not state.get("be_activated") and sl_distance > 0:
+                pct_of_rr = price_profit / sl_distance
+                if pct_of_rr >= 1.0:
+                    be_buffer = max(pip * 10.0, pip * 0.05)
+                    be_sl = round(entry_price + be_buffer, digit) if is_long else round(entry_price - be_buffer, digit)
                     if is_long:
                         new_sl = max(new_sl, be_sl)
                     else:
                         new_sl = min(new_sl, be_sl)
                     state["be_activated"] = True
                     modified = True
-                    logger.info(f"[{symbol}] BE activado (1min) {ticket}: {pct_of_tp*100:.0f}% TP ({price_profit/pip:.0f}p)")
+                    logger.info(f"[{symbol}] BE+10 activado (1min) {ticket} al 1:1 ({price_profit/pip:.0f}p)")
 
-            # Progressive TP expansion (1min)
-            if state.get("be_activated") and original_tp and tp_distance > 0:
-                current_stage = state.get("tp_expanded", 0)
-                thresholds = [0.50, 0.65, 0.80]
-                multipliers = [1.5, 2.0, 2.5]
-                base_distance = state.get("original_tp_distance", tp_distance)
-                if current_stage < len(thresholds):
-                    pct_of_tp = price_profit / tp_distance
-                    threshold = thresholds[current_stage]
-                    if pct_of_tp >= threshold:
-                        mult = multipliers[current_stage]
-                        add_distance = base_distance * mult
-                        new_tp = round(entry_price + add_distance, digit) if is_long else round(entry_price - add_distance, digit)
-                        state["managed_tp"] = new_tp
-                        state["tp_expanded"] = current_stage + 1
-                        modified = True
-                        logger.info(f"[{symbol}] TP expandido (1min) {ticket} stage {current_stage+1}: "
-                                    f"{current_tp} -> {new_tp}")
+                    # Propagar a hermanas del mismo batch
+                    zone_id = state.get("zone_id")
+                    if zone_id:
+                        for other_t, other_state in self.position_states.items():
+                            if other_t != ticket and other_state.get("zone_id") == zone_id:
+                                if not other_state.get("be_activated"):
+                                    other_state["be_activated"] = True
+                                    logger.info(f"[{symbol}] BE+10 propagado (1min) a hermana {other_t}")
 
             if modified:
                 self.executor.modify_position(ticket, new_sl, new_tp)

@@ -1,6 +1,6 @@
 {
   "mode": "DEMO",
-  "active_symbols": ["XAUUSDm"],
+  "active_symbols": ["XAUUSDm", "XAUEURm"],
   "inactive_symbols": ["NAS100", "XAGUSDm"],
   "loop_sleep_seconds": 5,
   "min_score_to_trade": 50.0,
@@ -47,6 +47,31 @@
       "scale_close_at_tp_pct": 0.5,
       "scale_close_ratio": 0.5,
       "pattern_min_scores": {"CYCLE_BULLISH": 90, "CYCLE_BEARISH": 90}
+    },
+    "XAUEURm": {
+      "symbol": "XAUEURm",
+      "htf_context": "H4",
+      "htf_secondary": "H1",
+      "ltf_trigger": "5min",
+      "ltf_refine": "5min",
+      "min_retracement": 0.25,
+      "fvg_entry_level": 0.50,
+      "sl_buffer_pips": 0.5,
+      "sl_fixed_pips": 0,
+      "sl_min_pips": 40.0,
+      "sl_max_pips": 50.0,
+      "min_rr_ratio": 2.0,
+      "tp_fixed_pips": 0,
+      "risk_per_trade_pct": 1.5,
+      "max_concurrent_trades": 2,
+      "max_daily_loss_pct": 6.0,
+      "max_daily_trades": 5,
+      "allowed_sessions": [],
+      "cooldown_bars_m1": 0,
+      "scale_entries": 3,
+      "scale_close_at_tp_pct": 0.5,
+      "scale_close_ratio": 0.5,
+      "pattern_min_scores": {"CYCLE_BULLISH": 85, "CYCLE_BEARISH": 85}
     },
     "NAS100": {
       "symbol": "NAS100",
@@ -217,7 +242,7 @@
     "min_reversal_score": 80.0,
     "min_reentry_score": 70.0,
     "min_net_score": 2.0,
-    "dxy_symbol": "DX"
+    "dxy_symbol": "USDOLLAR"
   },
 
   "regime_params": {

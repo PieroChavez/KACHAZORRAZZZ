@@ -30,7 +30,8 @@ def train(
     if not db_path.exists():
         raise FileNotFoundError(f"Database not found: {db_path}")
 
-    X, y, mean, std = load_trade_records(db_path, min_trades=10)
+    min_trades = 1 if force else 10
+    X, y, mean, std = load_trade_records(db_path, min_trades=min_trades)
     logger.info(f"Loaded {len(X)} trade records, {int(y.sum())} wins / {int((1 - y).sum())} losses")
 
     if hidden_layers is None:
@@ -42,22 +43,29 @@ def train(
 
     nn = NeuralNetwork(layers, learning_rate=lr)
 
-    split = int(len(X) * (1 - val_split))
-    X_train, X_val = X[:split], X[split:]
-    y_train, y_val = y[:split], y[split:]
+    if len(X) >= 3:
+        split = int(len(X) * (1 - val_split))
+        X_train, X_val = X[:split], X[split:]
+        y_train, y_val = y[:split], y[split:]
+        val_data = (X_val, y_val)
+    else:
+        X_train, y_train = X, y
+        val_data = None
 
     nn.train(
         X_train, y_train,
         epochs=epochs,
         batch_size=min(32, len(X_train)),
-        validation_data=(X_val, y_val),
+        validation_data=val_data,
         patience=15,
         verbose=True,
     )
 
     train_acc = nn.accuracy(y_train, nn.forward(X_train))
-    val_acc = nn.accuracy(y_val, nn.forward(X_val))
-    logger.info(f"Train accuracy: {train_acc:.2%}  |  Validation accuracy: {val_acc:.2%}")
+    logger.info(f"Train accuracy: {train_acc:.2%}")
+    if val_data:
+        val_acc = nn.accuracy(y_val, nn.forward(X_val))
+        logger.info(f"Validation accuracy: {val_acc:.2%}")
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     nn.save(MODEL_PATH)
