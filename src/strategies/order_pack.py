@@ -421,44 +421,36 @@ class OrderPackManager:
         logger.info(f"[{self.symbol}] Pack #{pack.id} BE+10 → SL={be_sl:.2f}")
 
     def _check_trailing(self, pack: OrderPack, subs: List[SubOrder], df_5m, atr_val):
-        if atr_val == 0 or df_5m is None or len(df_5m) < 20:
-            return
+        _ = atr_val, df_5m
         is_buy = pack.direction == "BUY"
-        last_body = abs(df_5m["close"].iloc[-1] - df_5m["open"].iloc[-1])
-        strong_move = last_body > 1.5 * atr_val
+        lock_ratios = {1: 0.20, 2: 0.40, 3: 0.60}
 
-        if not strong_move and not pack.trailing_activated:
-            return
+        price = None
+        for sub in subs:
+            if sub.status != "active" or sub.ticket == 0:
+                continue
+            pos = self._get_position(sub.ticket)
+            if pos is None:
+                continue
+            price = pos["price_current"]
+            break
 
-        highs_idx, lows_idx = [], []
-        n = len(df_5m)
-        lb = 5
-        for i in range(lb, n - lb):
-            if df_5m["high"].iloc[i] == df_5m["high"].iloc[i - lb:i + lb + 1].max():
-                highs_idx.append(i)
-            if df_5m["low"].iloc[i] == df_5m["low"].iloc[i - lb:i + lb + 1].min():
-                lows_idx.append(i)
-
-        if is_buy and len(lows_idx) > 0:
-            new_sl = min(df_5m["low"].iloc[idx] for idx in lows_idx[-5:])
-        elif not is_buy and len(highs_idx) > 0:
-            new_sl = max(df_5m["high"].iloc[idx] for idx in highs_idx[-5:])
-        else:
+        if price is None:
             return
 
         for sub in subs:
             if sub.status != "active" or sub.ticket == 0:
                 continue
-            if sub.position_number == 1:
-                continue
+            lock = lock_ratios.get(sub.position_number, 0.50)
+            raw_profit = (price - pack.entry_price) if is_buy else (pack.entry_price - price)
+            locked_profit = max(raw_profit * lock, 10 * self.pip)
+
+            new_sl = pack.entry_price + locked_profit if is_buy else pack.entry_price - locked_profit
             better_sl = (new_sl > sub.sl_current) if is_buy else (new_sl < sub.sl_current)
+
             if better_sl and sub.ticket:
-                sl_shift = abs(new_sl - sub.sl_current)
-                new_tp = sub.tp_target + sl_shift if is_buy else sub.tp_target - sl_shift
-                new_tp = round(new_tp, 5)
-                self.mt5_client.modify_position(sub.ticket, new_sl, new_tp)
+                self.mt5_client.modify_position(sub.ticket, new_sl, 0.0)
                 sub.sl_current = new_sl
-                sub.tp_target = new_tp
                 self._update_sub_sl(sub)
                 pack.trailing_activated = True
 
