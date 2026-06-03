@@ -1,0 +1,28 @@
+# Environment variables
+.env
+
+# Bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+.venv/
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

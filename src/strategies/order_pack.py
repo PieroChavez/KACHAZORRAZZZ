@@ -125,39 +125,39 @@ class OrderPackManager:
                 subs.append(sub)
             self._subs[p.id] = subs
 
-    def _place_market_order(self, direction: str, volume: float, sl: float,
-                            tp: float, comment: str) -> Optional[int]:
+    def _place_limit_order(self, direction: str, volume: float, entry_price: float,
+                           sl: float, tp: float, comment: str) -> Optional[int]:
+        _ = tp  # TP se asigna cuando el LIMIT se ejecuta
         direction = direction.upper()
-        order_type = mt5.ORDER_TYPE_BUY if direction == "BUY" else mt5.ORDER_TYPE_SELL
+        order_type = mt5.ORDER_TYPE_BUY_LIMIT if direction == "BUY" else mt5.ORDER_TYPE_SELL_LIMIT
         info = self.mt5_client.get_symbol_info(self.symbol)
         if not info:
             logger.error(f"[{self.symbol}] No symbol info")
             return None
         digits = info["digits"]
-        price = info["ask"] if direction == "BUY" else info["bid"]
 
+        price_adj = round(entry_price, digits)
         sl_adj = round(sl, digits)
-        tp_adj = round(tp, digits)
 
-        for filling in [mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_FOK, None]:
-            request = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": self.symbol,
-                "volume": volume,
-                "type": order_type,
-                "price": price,
-                "sl": sl_adj,
-                "tp": tp_adj,
-                "deviation": 10,
-                "magic": MAGIC,
-                "comment": comment,
-            }
-            if filling is not None:
-                request["type_filling"] = filling
-            result = mt5.order_send(request)
-            if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
-                logger.info(f"[{self.symbol}] {direction} {volume}@{price} SL={sl_adj} TP={tp_adj} → ticket={result.order}")
-                return result.order
+        request = {
+            "action": mt5.TRADE_ACTION_PENDING,
+            "symbol": self.symbol,
+            "volume": volume,
+            "type": order_type,
+            "price": price_adj,
+            "sl": sl_adj,
+            "tp": 0.0,
+            "deviation": 10,
+            "magic": MAGIC,
+            "comment": comment,
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        result = mt5.order_send(request)
+        if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
+            logger.info(f"[{self.symbol}] LIMIT {direction} {volume}@{price_adj} SL={sl_adj} → ticket={result.order}")
+            return result.order
+        logger.error(f"[{self.symbol}] LIMIT {direction} failed: {result.retcode if result else 'no result'} {result.comment if result else ''}")
         return None
 
     def place_pack(self, fractal_id: int, direction: str, entry_price: float,
@@ -198,8 +198,8 @@ class OrderPackManager:
         tickets = []
         tp_targets = [tp1_price, tp2_price, tp3_price]
         for i in range(3):
-            ticket = self._place_market_order(
-                direction, vol_per, sl_price, tp_targets[i],
+            ticket = self._place_limit_order(
+                direction, vol_per, entry_price, sl_price, tp_targets[i],
                 f"F{fractal_id}P{i+1}"
             )
             tickets.append(ticket or 0)
@@ -226,8 +226,64 @@ class OrderPackManager:
                      f"SL={sl_price:.2f} | 1:1={tp1_price:.2f} 1:2={tp2_price:.2f} 1:3={tp3_price:.2f}")
         return pack
 
+    def _is_pending(self, ticket: int) -> bool:
+        if ticket == 0:
+            return False
+        orders = mt5.orders_get(ticket=ticket)
+        return orders is not None and len(orders) > 0
+
+    def _sync_pending_fills(self):
+        """Detect LIMIT orders that have filled — update sub.ticket y asigna TP."""
+        for pack_id, pack in list(self._packs.items()):
+            if pack.status != "active":
+                continue
+            subs = self._subs.get(pack_id, [])
+            # Tickets ya asignados a posiciones de este pack
+            assigned = set()
+            for s in subs:
+                if s.ticket:
+                    pos = mt5.positions_get(ticket=s.ticket)
+                    if pos and len(pos) > 0:
+                        assigned.add(s.ticket)
+            for sub in subs:
+                if sub.status != "active" or sub.ticket == 0:
+                    continue
+                if self._is_pending(sub.ticket):
+                    continue  # aun no se ejecuta
+                if sub.ticket in assigned:
+                    continue  # ya es posicion
+                # La orden ya no esta pendiente — buscar la posicion
+                positions = mt5.positions_get(symbol=self.symbol)
+                if not positions:
+                    continue
+                is_buy = pack.direction == "BUY"
+                mt5_type = mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL
+                for p in positions:
+                    if p.magic != MAGIC or p.type != mt5_type:
+                        continue
+                    if p.ticket in assigned:
+                        continue
+                    if abs(p.volume - sub.volume) > 0.001:
+                        continue
+                    # Coincidencia encontrada
+                    sub.ticket = p.ticket
+                    entries = {1: pack.tp1, 2: pack.tp2, 3: pack.tp3}
+                    tp_price = entries.get(sub.position_number, pack.tp3)
+                    self.mt5_client.modify_position(p.ticket, sub.sl_current, tp_price)
+                    sub.tp_target = tp_price
+                    assigned.add(p.ticket)
+                    self._conn.execute(
+                        "UPDATE sub_orders SET ticket=?, tp_target=? WHERE pack_id=? AND position_number=?",
+                        (p.ticket, tp_price, pack_id, sub.position_number)
+                    )
+                    self._conn.commit()
+                    logger.info(f"[{self.symbol}] Pack #{pack.id} P{sub.position_number} filled → "
+                               f"pos ticket={p.ticket}, TP={tp_price:.2f}")
+                    break
+
     def manage_all(self, current_time: datetime, df_5m):
         atr_val = atr(df_5m, 14).iloc[-1] if df_5m is not None and len(df_5m) > 14 else 0
+        self._sync_pending_fills()
         for pack_id, pack in list(self._packs.items()):
             if pack.status != "active":
                 continue
@@ -265,6 +321,8 @@ class OrderPackManager:
                 continue
             pos = self._get_position(sub.ticket)
             if pos is None:
+                if self._is_pending(sub.ticket):
+                    continue  # LIMIT aun pendiente
                 sub.status = "closed_manual"
                 self._update_sub_status(sub)
                 continue
@@ -432,6 +490,25 @@ class OrderPackManager:
 
     def get_all_subs(self, pack_id: int) -> List[SubOrder]:
         return self._subs.get(pack_id, [])
+
+    def cancel_pack(self, pack_id: int):
+        """Cancela todas las órdenes pendientes de un pack y lo marca como cerrado."""
+        pack = self._packs.get(pack_id)
+        if not pack:
+            return
+        subs = self._subs.get(pack_id, [])
+        for sub in subs:
+            if sub.status == "active" and sub.ticket != 0:
+                result = mt5.order_send({
+                    "action": mt5.TRADE_ACTION_REMOVE,
+                    "order": sub.ticket,
+                })
+                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                    logger.info(f"[{self.symbol}] Cancelada orden {sub.ticket} del pack #{pack_id}")
+                sub.status = "cancelled"
+                self._update_sub_status(sub)
+        pack.status = "closed"
+        self._update_pack_status(pack)
 
     def get_pack_summary(self) -> List[dict]:
         result = []

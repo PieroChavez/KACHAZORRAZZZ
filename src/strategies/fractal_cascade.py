@@ -3,7 +3,7 @@ Multi-TF hunter (4H, 2H, 30min, 15min) with proximity alerts + independent 5M
 sub-fractal hunting. Triple order packs with dynamic trailing.
 """
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timedelta
 from typing import Optional, List, Dict, Tuple
 from pathlib import Path
 from loguru import logger
@@ -205,38 +205,26 @@ class FractalCascadeStrategy:
         df_5m = timeframes.get("5min")
 
         for f in candidates:
-            if f.is_subfractal:
-                self._try_enter_5m(f, price, df_5m)
-            else:
-                self._try_alert_then_enter(f, price, df_5m, current_time)
-
-    def _try_alert_then_enter(self, f: Fractal, price: float,
-                               df_5m: pd.DataFrame, current_time: datetime):
-        near = abs(price - f.fib_072) <= PROXIMITY_PIPS * self.pip
-
-        if near:
-            if f.id not in self._alerts:
-                self._alerts[f.id] = current_time
-                logger.info(f"[{self.symbol}] ⚠️ Alerta #{f.id} {f.timeframe} "
-                            f"{f.direction} → 072={f.fib_072:.2f} (precio={price:.2f})")
-
-            if self._get_confirmation(f, df_5m):
-                self._execute_entry(f, price, df_5m)
-        else:
             if not self._fractal_valid(f, price):
                 self.db.invalidate(f.id)
                 self._alerts.pop(f.id, None)
-                logger.info(f"[{self.symbol}] Fractal #{f.id} invalidado (nivel 1 violado)")
+                tag = "SUB" if f.is_subfractal else "MACRO"
+                logger.info(f"[{self.symbol}] {tag} #{f.id} invalidado (nivel 1 violado)")
+                continue
 
-    def _try_enter_5m(self, f: Fractal, price: float, df_5m: pd.DataFrame):
-        near = abs(price - f.fib_072) <= PROXIMITY_PIPS * self.pip
-
-        if near and self._get_confirmation(f, df_5m):
-            self._execute_entry(f, price, df_5m)
-        else:
-            if not self._fractal_valid(f, price):
+            if self._fractal_stale(f, price):
+                self._cancel_pending_for(f)
                 self.db.invalidate(f.id)
-                logger.info(f"[{self.symbol}] Subfractal 5M #{f.id} invalidado")
+                self._alerts.pop(f.id, None)
+                tag = "SUB" if f.is_subfractal else "MACRO"
+                logger.info(f"[{self.symbol}] {tag} #{f.id} invalidado (estructura superada)")
+                continue
+
+            if f.is_subfractal or f.timeframe == "15min":
+                self._execute_entry(f, price, df_5m)
+            else:
+                if self._get_confirmation(f, df_5m):
+                    self._execute_entry(f, price, df_5m)
 
     def _execute_entry(self, f: Fractal, price: float, df_5m: pd.DataFrame):
         session = self.session_profiler.get_session()
@@ -273,6 +261,20 @@ class FractalCascadeStrategy:
         else:
             return price < f.level1 * (1 + buf)
 
+    def _fractal_stale(self, f: Fractal, price: float) -> bool:
+        buf = 0.01
+        if f.direction == "bullish":
+            return price > f.level0 * (1 + buf)
+        else:
+            return price < f.level0 * (1 - buf)
+
+    def _cancel_pending_for(self, f: Fractal):
+        active_packs = self.orders.get_active_packs()
+        for pack in active_packs:
+            if pack.fractal_id == f.id:
+                self.orders.cancel_pack(pack.id)
+                break
+
     def _get_confirmation(self, f: Fractal, df_5m: pd.DataFrame) -> bool:
         if df_5m is None or len(df_5m) < 10:
             return False
@@ -304,7 +306,7 @@ class FractalCascadeStrategy:
         sess_adj = self._session_vol_adj(session)
         ml_mult = self.learner.get_volume_mult(f.timeframe, f.direction, f.is_subfractal, session.value if session else "")
         vol = BASE_LOT * sess_adj * ml_mult
-        return max(0.01, round(vol, 2))
+        return max(0.03, round(vol, 2))
 
     @staticmethod
     def _session_vol_adj(session: TradingSession) -> float:

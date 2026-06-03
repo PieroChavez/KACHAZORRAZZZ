@@ -1,0 +1,217 @@
+Sistema Integrado: MarketHoursController
+1. Auto-clasificación de activos
+Sin tocar strategy.json. Reglas heurísticas sobre el símbolo MT5 resuelto:
+def classify(symbol: str) -> str:
+    crypto_patterns = r'BTC|ETH|XRP|LTC|ADA|DOT|SOL|BNB|LINK|MATIC|AVAX|DASH|EOS'
+    if re.match(crypto_patterns, symbol):
+        return 'crypto'
+    if re.match(r'XAU|XAG|XPT|XPD|XCU|UKOIL|USOIL', symbol):
+        return 'commodity'
+    if re.match(r'USTEC|US30|US100|DAX|NK225|SPX|SP500|CAC|FTSE|IBEX|VIX', symbol):
+        return 'index'
+    if re.match(r'[A-Z]{6}(\.|\b|m)', symbol):  # EURUSD, GBPJPY, etc.
+        return 'forex'
+    return 'unknown'
+Cacheado en {symbol: asset_class} al arrancar.
+2. Estados de cada símbolo tradicional
+                candle fresco (< 1 min)
+    OPEN ───────────────────────────────►
+     │                                    │
+     │ candle viejo > 30 min              │ candle fresco aparece
+     ▼                                    ▼
+   CLOSED ◄───────────────────────────── GRACE
+                                          (5-30 min sin candle,
+                                           permite cerrar posiciones)
+
+    ──── time:     CLOSE - 10 min     OPEN + 10 min ────
+    Estado:    BLACKOUT_PRE           COOLDOWN_POST
+    Acción:    no nuevas entradas     no nuevas entradas
+3. Machine de estados por símbolo
+┌──────────────────────────────────────────────────────────┐
+│                    MarketHoursController                 │
+│                                                          │
+│  Por cada sym tradicional:                               │
+│                                                          │
+│  [OPEN] ──(t >= close - 10 min)──► [BLACKOUT_PRE]        │
+│     │                                      │             │
+│     │(candle fresco)                  (llega close)      │
+│     │                                      │             │
+│     ▼                                      ▼             │
+│  [COOLDOWN_POST] ◄──(open + 10 min)── [CLOSED]          │
+│     │                                                      │
+│     └──(pasan 10 min desde open)──► [OPEN]               │
+│                                                          │
+│  [CLOSED] : no evaluar, solo esperar candle fresco      │
+│  [BLACKOUT_PRE] : evaluar pero no entrar (cerrar si     │
+│                  hay señal de salida)                    │
+│  [COOLDOWN_POST] : evaluar pero no entrar (10 min)      │
+│  [OPEN] : flujo normal                                   │
+└──────────────────────────────────────────────────────────┘
+Crypto: siempre en OPEN, no pasa por esta máquina de estados.
+4. Detección de close/open (doble validación)
+Primaria — Candle freshness tracker
+Cada vez que _on_new_candle() se dispara (1m), se actualiza un diccionario:
+last_candle: dict[symbol, datetime] = {}
+
+def on_new_candle(self, symbol, tf, candle_time):
+    if tf == "1min":
+        self.last_candle[symbol] = candle_time
+Secundaria — Spread anomaly
+Si el spread se dispara > 5x el spread normal del símbolo, es señal de cierre inminente. Útil para BLACKOUT_PRE.
+spike_ratio = current_spread / avg_spread
+if spike_ratio > 5.0 and state == OPEN:
+    transition_to(BLACKOUT_PRE)
+Terciaria — Caída libre de volumen
+Si el tick volume del último candle 1m es < 10% del promedio, mercado zombie. Transición a BLACKOUT_PRE también.
+5. Lógica de transiciones (pseudocódigo)
+def _update_state(self, sym: str, now: datetime):
+    asset_class = self.asset_classes[sym]
+    if asset_class == 'crypto':
+        return  # siempre OPEN, nada que hacer
+
+    last = self.last_candle.get(sym)
+    if last is None:
+        return  # aun no hay datos, esperar
+
+    age_min = (now - last).total_seconds() / 60.0
+    current_state = self.states[sym]
+
+    # --- DETECCION DE APERTURA (CLOSED -> COOLDOWN) ---
+    if current_state in (CLOSED, BLACKOUT_PRE) and age_min < 2:
+        # Llego un candle fresco -> el mercado acaba de abrir
+        self.states[sym] = COOLDOWN_POST
+        self.cooldown_end[sym] = now + timedelta(minutes=10)
+        return
+
+    # --- DETECCION DE CIERRE INMINENTE (OPEN -> BLACKOUT_PRE) ---
+    if current_state == OPEN and age_min > 25:
+        # 25+ min sin candle fresco -> probablemente cerro
+        self.states[sym] = BLACKOUT_PRE
+        self.blackout_end[sym] = now  # se usara solo si hay reapertura
+        return
+
+    # --- COOLDOWN_POST -> OPEN (pasaron 10 min) ---
+    if current_state == COOLDOWN_POST and now >= self.cooldown_end.get(sym, now):
+        self.states[sym] = OPEN
+        return
+
+    # --- OPEN -> CLOSED (30+ min sin candle) ---
+    if current_state in (OPEN, COOLDOWN_POST) and age_min > 30:
+        self.states[sym] = CLOSED
+        return
+
+    # --- CLOSED -> esperando candle fresco ---
+    # (no se hace nada, el primer candle fresco dispara COOLDOWN)
+6. Pregunta clave que decide todo
+def can_open_new_position(self, sym: str) -> bool:
+    """¿Puedo colocar una nueva orden NOW para este símbolo?"""
+    state = self.states.get(sym, OPEN)
+    return state == OPEN  # los demas estados: NO
+
+def should_evaluate(self, sym: str) -> bool:
+    """¿Vale la pena correr el pipeline completo?"""
+    state = self.states.get(sym, OPEN)
+    if self.asset_classes.get(sym) == 'crypto':
+        return True
+    # Tradicional: evaluar solo si hay posibilidad de entrar o gestionar
+    return state in (OPEN, COOLDOWN_POST, BLACKOUT_PRE)
+can_open_new_position → se consulta en el momento de colocar la orden (último paso del pipeline), NO al inicio. Así el pipeline completo se ejecuta, se genera señal, se calcula volumen, y justo antes de enviar la orden se pregunta si está permitido. Esto permite que señales de salida (TP/SL dinámico, trailing) sigan funcionando aunque el mercado esté en BLACKOUT_PRE.
+7. Integración en bot.py — solo 3 hooks
+# 1. Inicialización (en start())
+self.hours_controller = MarketHoursController(self.mt5)
+self.hours_controller.classify_all(self.symbols.keys())
+
+# 2. En _on_new_candle() — actualizar freshness
+def _on_new_candle(self, tf, candle_time):
+    if tf == "1min":
+        for sym in self.symbols:
+            self.hours_controller.on_new_candle(sym, "1min", candle_time)
+            if self.hours_controller.should_evaluate(sym):
+                self._manage_positions_light(sym)
+    elif tf == "5min":
+        self._evaluate()
+
+# 3. En _evaluate() — filtrar loop principal
+def _evaluate(self):
+    if not self.risk_manager.can_trade()[0]:
+        return
+    # Actualizar estados antes del loop
+    now = datetime.now()
+    for sym in self.symbols:
+        self.hours_controller._update_state(sym, now)
+
+    dxy_df = self._fetch_dxy_data()
+    for sym, sym_data in self.symbols.items():
+        if not self.hours_controller.should_evaluate(sym):
+            continue
+        result = self._symbol_evaluator.evaluate(...)
+        if result and result.signal == ENTRY:
+            if not self.hours_controller.can_open_new_position(sym):
+                logger.debug(f"[{sym}] Blackout/cooldown active, skipping entry")
+                continue
+            # colocar orden...
+8. Integración en symbol_evaluator.py — 1 hook (justo antes de order placement)
+En el método _place_order o equivalente (~línea 650+):
+if not bot.hours_controller.can_open_new_position(symbol):
+    self.logger.info(f"[{symbol}] Skipping entry: market hours restricted")
+    return None  # No entra, pero deja todo igual
+9. Comportamiento con posiciones abiertas
+Escenario	SL/TP	Trailing
+BLACKOUT_PRE (10 min antes de cierre)	Activo	Activo
+CLOSED (mercado cerrado)	Activo	Activo
+COOLDOWN_POST (10 min tras apertura)	Activo	Activo
+OPEN normal	Activo	Activo
+10. Persistencia en trading_state.db
+CREATE TABLE market_hours_state (
+    symbol TEXT PRIMARY KEY,
+    asset_class TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'UNKNOWN',
+    last_candle_time REAL,
+    cooldown_end REAL,
+    blackout_start REAL,
+    updated_at REAL NOT NULL
+);
+- Se persiste cada 5 min y en cada transición de estado.
+- Al reiniciar el bot, se recupera el estado. Si state = CLOSED y ahora hay candle fresco, transiciona a COOLDOWN_POST automáticamente.
+11. Warming — evitar falsos BLACKOUT_PRE
+Los primeros 60 minutos después del arranque del bot, el detector de freshness no transiciona a CLOSED/BLACKOUT_PRE porque no tiene baseline de cuándo fue el último candle real. Usa un estado BOOTSTRAP donde solo recolecta datos pero nunca bloquea.
+BOOTSTRAP_DURATION = timedelta(minutes=60)
+12. Reporte en vivo — scripts/check_status.py
+Añadir columna STATE en el output:
+Symbol       | Class     | State         | Last Candle | Spread
+-------------|-----------|---------------|-------------|-------
+XAUUSD..     | commodity | OPEN          | 30s ago     | 18
+BTCUSDm      | crypto    | OPEN          | 12s ago     | 5
+EURUSD       | forex     | BLACKOUT_PRE  | 27min ago   | 120
+USTECm       | index     | CLOSED        | 18h ago     | 0
+13. Resumen final — líneas de código totales
+Componente	Archivo
+MarketHoursController	src/core/market_hours.py (nuevo)
+Hook init + callbacks	src/bot.py
+Hook pre-order	src/symbol_evaluator.py
+Tabla DB + persistencia	src/core/state_persistence.py
+Columna reporte	scripts/check_status.py
+Total	 
+Zero cambios en strategy_engine.py, scheduler.py, executor/, risk/, backtest/, optimization/.
+El sistema es auto-regulado: no necesita config de horarios, no necesita timezones hardcodeadas, no necesita saber feriados. Solo mira si los candles están vivos o muertos y decide en consecuencia. Los 10 min de cooldown post-apertura y 10 min de blackout pre-cierre se aplican automáticamente basados en la transición de CLOSED → COOLDOWN_POST y OPEN → BLACKOUT_PRE respectivamente.
+▣  Build · Big Pickle · 39.0s
+esto tambien cierbe para los cierres de mercado los viernes y apertura los domingos? te leo , responde sin modificar
++ Thought: 679ms
+Sí, absolutamente. Ese es precisamente el punto fuerte del enfoque.
+Para el viernes (cierre):
+- Último candle 1m se genera el viernes ~15:59 (según huso del broker).
+- A las 16:01 ya tiene 2 min de edad. A las 16:30 tiene 30+ min.
+- El freshness tracker transiciona automáticamente a CLOSED sin saber qué día es.
+- Dentro de esos 30 min (entre los 25 y 30 min sin candle), pasa por BLACKOUT_PRE.
+Para el domingo (apertura):
+- A las 16:00:01 llega el primer candle 1m fresco después de ~48h sin ninguno.
+- age_min pasa de 2880 min a < 1 min → detecta el flanco de subida.
+- Transiciona a COOLDOWN_POST automáticamente.
+- 10 min después → OPEN.
+No hay lógica de días de la semana, ni de horas fijas, ni de timezones. El sistema no sabe qué es viernes ni domingo. Solo ve "no llegaron candles por 48h → CLOSED" y luego "llegó un candle fresco → asumo que abrió". Funciona para:
+- Fines de semana (forex cierra viernes, abre domingo)
+- Feriados locales (ej. mercado de EU cerrado un lunes por Presidents' Day)
+- Cierre intradiario (ej. algunos índices tienen sesión de 9:30 a 16:00 ET, el resto del día no hay candles)
+- Problemas de conectividad con el broker (si MT5 deja de recibir datos, el bot también se pausa solo)
+- Símbolos eliminados o renombrados (nunca más llegan candles → se quedan en CLOSED permanentemente sin errores)
+Un solo mecanismo, cero supuestos, cero configuración.

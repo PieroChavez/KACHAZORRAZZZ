@@ -1,0 +1,22 @@
+{
+  "mt5": {
+    "path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+    "login": 198427930,
+    "password": "12P@ola12",
+    "server": "Exness-MT5Trial11"
+  },
+  "exness": {
+    "account_id": "your_account_id",
+    "api_key": "your_api_key",
+    "api_secret": "your_api_secret"
+  },
+  "oanda": {
+    "api_key": "your_oanda_api_key",
+    "account_id": "your_oanda_account_id",
+    "environment": "practice"
+  },
+  "symbols": {
+    "trading": ["XAUUSD..", "XAGUSD..", "BTCUSD..", "USTEC_x100"],
+    "data_feed": ["XAUUSD..", "XAGUSD..", "BTCUSD..", "USTEC_x100"]
+  }
+}
