@@ -20,7 +20,7 @@ del _proj_root
 
 from src.adapters.mt5_client import MT5Client
 from src.core.multi_timeframe import MultiTimeframeFetcher
-from src.core.strategy_engine import StrategyEngine, TradingSignal, ScoringConfig
+from src.core.strategy_engine import TradingSignal, ScoringConfig
 from src.utils.state_persistence import StatePersistence
 from src.core.news_calendar import NewsCalendar
 from src.core.regime_detector import RegimeDetector, RegimeContext
@@ -282,15 +282,7 @@ class TradingBot:
         for sym in self.active_symbols:
             sym_cfg = str_cfg["symbols"].get(sym, {})
             profile = build_symbol_profile(sym_cfg)
-            if sym == "XAUEURm":
-                engine = FractalCascadeStrategy(sym, self.mt5, self.fetcher)
-            else:
-                engine = StrategyEngine(
-                    profile=profile, params=self.params,
-                    weights=scoring_cfg, min_score=self.min_score,
-                    high_confidence_score=self.high_confidence_score,
-                    min_net_score=self.params.min_net_score,
-                )
+            engine = FractalCascadeStrategy(sym, self.mt5, self.fetcher)
             self.symbols[sym] = {
                 "profile": profile,
                 "engine": engine,

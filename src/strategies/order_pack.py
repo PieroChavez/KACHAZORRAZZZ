@@ -232,26 +232,40 @@ class OrderPackManager:
         orders = mt5.orders_get(ticket=ticket)
         return orders is not None and len(orders) > 0
 
+    def _build_active_assigned(self) -> set:
+        """Return set of position tickets already assigned to any active pack."""
+        assigned = set()
+        for pid, pk in self._packs.items():
+            if pk.status != "active":
+                continue
+            for s in self._subs.get(pid, []):
+                if s.ticket:
+                    pos = mt5.positions_get(ticket=s.ticket)
+                    if pos and len(pos) > 0:
+                        assigned.add(s.ticket)
+        return assigned
+
     def _sync_pending_fills(self):
         """Detect LIMIT orders that have filled — update sub.ticket y asigna TP."""
+        all_assigned = self._build_active_assigned()
         for pack_id, pack in list(self._packs.items()):
             if pack.status != "active":
                 continue
             subs = self._subs.get(pack_id, [])
             # Tickets ya asignados a posiciones de este pack
-            assigned = set()
+            pack_assigned = set()
             for s in subs:
                 if s.ticket:
                     pos = mt5.positions_get(ticket=s.ticket)
                     if pos and len(pos) > 0:
-                        assigned.add(s.ticket)
+                        pack_assigned.add(s.ticket)
             for sub in subs:
                 if sub.status != "active" or sub.ticket == 0:
                     continue
                 if self._is_pending(sub.ticket):
                     continue  # aun no se ejecuta
-                if sub.ticket in assigned:
-                    continue  # ya es posicion
+                if sub.ticket in all_assigned:
+                    continue  # ya asignado a otro pack activo
                 # La orden ya no esta pendiente — buscar la posicion
                 positions = mt5.positions_get(symbol=self.symbol)
                 if not positions:
@@ -261,7 +275,7 @@ class OrderPackManager:
                 for p in positions:
                     if p.magic != MAGIC or p.type != mt5_type:
                         continue
-                    if p.ticket in assigned:
+                    if p.ticket in all_assigned:
                         continue
                     if abs(p.volume - sub.volume) > 0.001:
                         continue
@@ -271,7 +285,7 @@ class OrderPackManager:
                     tp_price = entries.get(sub.position_number, pack.tp3)
                     self.mt5_client.modify_position(p.ticket, sub.sl_current, tp_price)
                     sub.tp_target = tp_price
-                    assigned.add(p.ticket)
+                    all_assigned.add(p.ticket)
                     self._conn.execute(
                         "UPDATE sub_orders SET ticket=?, tp_target=? WHERE pack_id=? AND position_number=?",
                         (p.ticket, tp_price, pack_id, sub.position_number)
