@@ -1,5 +1,5 @@
-"""Triple Order Pack Manager — 3 simultaneous positions per fractal entry
-Manages entry, SL, TP1/TP2/TP3, breakeven +10, and dynamic trailing.
+"""Dual Order Pack Manager — 2 simultaneous positions per fractal entry
+Manages entry, SL, TP1/TP2, breakeven +10, and dynamic trailing for runner.
 """
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -44,7 +44,6 @@ class OrderPack:
     sl_initial: float = 0.0
     tp1: float = 0.0
     tp2: float = 0.0
-    tp3: float = 0.0
     volume_total: float = 0.0
     volume_per: float = 0.0
     status: str = "active"
@@ -74,7 +73,7 @@ class OrderPackManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 fractal_id INTEGER, symbol TEXT, direction TEXT,
                 entry_price REAL, sl_initial REAL,
-                tp1 REAL, tp2 REAL, tp3 REAL,
+                tp1 REAL, tp2 REAL,
                 volume_total REAL, volume_per REAL,
                 status TEXT DEFAULT 'active',
                 breakeven_activated INTEGER DEFAULT 0,
@@ -103,13 +102,19 @@ class OrderPackManager:
             (self.symbol,)
         ).fetchall()
         for r in rows:
+            tp1_val = r[6] if len(r) > 6 else 0
+            tp2_val = r[7] if len(r) > 7 else 0
+            # r[8] is tp3 (added later, shifts indices)
+            vol_total = r[9] if len(r) > 9 else r[8]
+            vol_per = r[10] if len(r) > 10 else r[9]
             p = OrderPack(id=r[0], fractal_id=r[1], symbol=r[2], direction=r[3],
-                          entry_price=r[4], sl_initial=r[5], tp1=r[6], tp2=r[7],
-                          tp3=r[8], volume_total=r[9], volume_per=r[10],
-                          status=r[11], breakeven_activated=bool(r[12]),
-                          trailing_activated=bool(r[13]),
-                          source_timeframe=r[14],
-                          created_at=datetime.fromisoformat(r[15]) if r[15] else None)
+                          entry_price=r[4], sl_initial=r[5], tp1=tp1_val, tp2=tp2_val,
+                          volume_total=vol_total, volume_per=vol_per,
+                          status=r[11] if len(r) > 11 else r[10],
+                          breakeven_activated=bool(r[12] if len(r) > 12 else r[11]),
+                          trailing_activated=bool(r[13] if len(r) > 13 else r[12]),
+                          source_timeframe=r[14] if len(r) > 14 else r[13],
+                          created_at=datetime.fromisoformat(r[15] if len(r) > 15 else r[14]) if (r[15] if len(r) > 15 else r[14]) else None)
             self._packs[p.id] = p
             sub_rows = self._conn.execute(
                 "SELECT * FROM sub_orders WHERE pack_id=?", (p.id,)
@@ -172,17 +177,16 @@ class OrderPackManager:
 
         tp1_price = entry_price + risk_dist if is_buy else entry_price - risk_dist
         tp2_price = entry_price + 2 * risk_dist if is_buy else entry_price - 2 * risk_dist
-        tp3_price = entry_price + 3 * risk_dist if is_buy else entry_price - 3 * risk_dist
-        vol_per = round(volume_total / 3, 2)
+        vol_per = round(volume_total / 2, 2)
 
         now = datetime.utcnow()
         cur = self._conn.execute("""
             INSERT INTO order_packs (fractal_id, symbol, direction, entry_price,
-                sl_initial, tp1, tp2, tp3, volume_total, volume_per, status,
+                sl_initial, tp1, tp2, volume_total, volume_per, status,
                 source_timeframe, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         """, (fractal_id, self.symbol, direction, entry_price, sl_price,
-              tp1_price, tp2_price, tp3_price, volume_total, vol_per,
+              tp1_price, tp2_price, volume_total, vol_per,
               "active", timeframe, now.isoformat()))
         self._conn.commit()
         pack_id = cur.lastrowid
@@ -190,14 +194,14 @@ class OrderPackManager:
         pack = OrderPack(id=pack_id, fractal_id=fractal_id, symbol=self.symbol,
                          direction=direction, entry_price=entry_price,
                          sl_initial=sl_price, tp1=tp1_price, tp2=tp2_price,
-                         tp3=tp3_price, volume_total=volume_total,
+                         volume_total=volume_total,
                          volume_per=vol_per, status="active", created_at=now,
                          source_timeframe=timeframe)
         self._packs[pack_id] = pack
 
         tickets = []
-        tp_targets = [tp1_price, tp2_price, tp3_price]
-        for i in range(3):
+        tp_targets = [tp1_price, tp2_price]
+        for i in range(2):
             ticket = self._place_limit_order(
                 direction, vol_per, entry_price, sl_price, tp_targets[i],
                 f"F{fractal_id}P{i+1}"
@@ -205,7 +209,7 @@ class OrderPackManager:
             tickets.append(ticket or 0)
 
         subs = []
-        for i in range(3):
+        for i in range(2):
             sub = SubOrder(pack_id=pack_id, position_number=i + 1,
                           ticket=tickets[i], direction=direction,
                           symbol=self.symbol, volume=vol_per,
@@ -223,7 +227,7 @@ class OrderPackManager:
         self._subs[pack_id] = subs
 
         logger.info(f"[{self.symbol}] Pack #{pack_id} {direction} @ {entry_price:.2f} "
-                     f"SL={sl_price:.2f} | 1:1={tp1_price:.2f} 1:2={tp2_price:.2f} 1:3={tp3_price:.2f}")
+                     f"SL={sl_price:.2f} | 1:1={tp1_price:.2f} 1:2={tp2_price:.2f}")
         return pack
 
     def _is_pending(self, ticket: int) -> bool:
@@ -281,8 +285,8 @@ class OrderPackManager:
                         continue
                     # Coincidencia encontrada
                     sub.ticket = p.ticket
-                    entries = {1: pack.tp1, 2: pack.tp2, 3: pack.tp3}
-                    tp_price = entries.get(sub.position_number, pack.tp3)
+                    entries = {1: pack.tp1, 2: pack.tp2}
+                    tp_price = entries.get(sub.position_number, pack.tp2)
                     self.mt5_client.modify_position(p.ticket, sub.sl_current, tp_price)
                     sub.tp_target = tp_price
                     all_assigned.add(p.ticket)
@@ -405,9 +409,11 @@ class OrderPackManager:
         for sub in subs:
             if sub.status != "active" or sub.ticket == 0:
                 continue
-            new_sl = assurance_sl if pack.breakeven_activated else be_sl
+            # Posición 1 va a BE+10; runner (pos 2) va a assurance (1:1)
             if sub.position_number == 1:
                 new_sl = be_sl
+            else:
+                new_sl = assurance_sl if pack.breakeven_activated else be_sl
             if sub.ticket:
                 self.mt5_client.modify_position(sub.ticket, new_sl, 0.0)
                 sub.sl_current = new_sl
@@ -418,41 +424,58 @@ class OrderPackManager:
             "UPDATE order_packs SET breakeven_activated=1 WHERE id=?", (pack.id,)
         )
         self._conn.commit()
-        logger.info(f"[{self.symbol}] Pack #{pack.id} BE+10 → SL={be_sl:.2f}")
+        logger.info(f"[{self.symbol}] Pack #{pack.id} BE+10 → SL={be_sl:.2f} (runner asegurado en {assurance_sl:.2f})")
 
     def _check_trailing(self, pack: OrderPack, subs: List[SubOrder], df_5m, atr_val):
         _ = atr_val, df_5m
         is_buy = pack.direction == "BUY"
-        lock_ratios = {1: 0.20, 2: 0.40, 3: 0.60}
+        entry = pack.entry_price
+        pip = self.pip
 
-        price = None
-        for sub in subs:
-            if sub.status != "active" or sub.ticket == 0:
-                continue
-            pos = self._get_position(sub.ticket)
-            if pos is None:
-                continue
-            price = pos["price_current"]
-            break
-
-        if price is None:
+        # --- Averiguar cuántas posiciones activas quedan ---
+        active = [s for s in subs if s.status == "active" and s.ticket != 0 and self._get_position(s.ticket)]
+        if not active:
             return
 
-        for sub in subs:
-            if sub.status != "active" or sub.ticket == 0:
-                continue
-            lock = lock_ratios.get(sub.position_number, 0.50)
-            raw_profit = (price - pack.entry_price) if is_buy else (pack.entry_price - price)
-            locked_profit = max(raw_profit * lock, 10 * self.pip)
+        # Precio actual del mercado (del primer activo)
+        first_pos = self._get_position(active[0].ticket)
+        if first_pos is None:
+            return
+        price = first_pos["price_current"]
 
-            new_sl = pack.entry_price + locked_profit if is_buy else pack.entry_price - locked_profit
-            better_sl = (new_sl > sub.sl_current) if is_buy else (new_sl < sub.sl_current)
+        # Determinar si TP1 ya fue alcanzado (posición 1 ya no está activa)
+        tp1_hit = not any(s.position_number == 1 and s.status == "active" and self._get_position(s.ticket)
+                          for s in subs)
+        # Determinar si solo queda el runner
+        only_runner = len(active) == 1 and active[0].position_number == 2
 
-            if better_sl and sub.ticket:
-                self.mt5_client.modify_position(sub.ticket, new_sl, 0.0)
-                sub.sl_current = new_sl
-                self._update_sub_sl(sub)
-                pack.trailing_activated = True
+        for sub in active:
+            raw_profit = (price - entry) if is_buy else (entry - price)
+
+            # --- Runner dinámico: SL persigue el precio sin esperar ---
+            if sub.position_number == 2 and (tp1_hit or only_runner):
+                # Runner: lockea 50% del profit actual, mínimo 10 pips
+                lock_ratio = 0.50
+                locked = max(raw_profit * lock_ratio, 10 * pip)
+                new_sl = entry + locked if is_buy else entry - locked
+                better_sl = (new_sl > sub.sl_current) if is_buy else (new_sl < sub.sl_current)
+                if better_sl and sub.ticket:
+                    self.mt5_client.modify_position(sub.ticket, new_sl, 0.0)
+                    sub.sl_current = new_sl
+                    self._update_sub_sl(sub)
+                    pack.trailing_activated = True
+
+            # --- Posición 1 (scalp): trailing suave solo si está activa ---
+            elif sub.position_number == 1:
+                lock_ratio = 0.20
+                locked = max(raw_profit * lock_ratio, 10 * pip)
+                new_sl = entry + locked if is_buy else entry - locked
+                better_sl = (new_sl > sub.sl_current) if is_buy else (new_sl < sub.sl_current)
+                if better_sl and sub.ticket:
+                    self.mt5_client.modify_position(sub.ticket, new_sl, 0.0)
+                    sub.sl_current = new_sl
+                    self._update_sub_sl(sub)
+                    pack.trailing_activated = True
 
         if pack.trailing_activated:
             self._conn.execute(
@@ -526,7 +549,7 @@ class OrderPackManager:
                 "direction": p.direction,
                 "entry": p.entry_price,
                 "sl": p.sl_initial,
-                "tp1": p.tp1, "tp2": p.tp2, "tp3": p.tp3,
+                "tp1": p.tp1, "tp2": p.tp2,
                 "be": p.breakeven_activated,
                 "trailing": p.trailing_activated,
                 "source_tf": p.source_timeframe,
