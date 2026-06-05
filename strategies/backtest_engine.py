@@ -14,7 +14,7 @@ from loguru import logger
 import json
 from datetime import datetime
 
-from strategies.smart_money_concepts import SmartMoneyConcepts, detect_smc
+from strategies.kachazorraz import SmartMoneyConcepts, detect_smc
 
 
 # ============================================================

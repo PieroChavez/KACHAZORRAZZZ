@@ -1,5 +1,5 @@
 """
-fvg_detector.py
+fvg.py
 
 Fair Value Gap & Inverted FVG Detector
 
@@ -76,24 +76,18 @@ class FVGDetector:
         """
         fvgs = []
         try:
-            # Validar columnas
             required = ['time', 'open', 'high', 'low', 'close']
             for col in required:
                 if col not in df.columns:
                     raise ValueError(f"Falta la columna '{col}' en el DataFrame")
 
-            # Asegurar que el índice sea secuencial (0..len-1)
             df = df.reset_index(drop=True)
             n = len(df)
 
-            # Calcular ATR para la fuerza de los FVG
             atr = self._calculate_atr(df, self.atr_length)
-
-            # FVG activos (aún no mitigados) que pueden convertirse en iFVG
-            active_fvgs = []  # lista de dicts
+            active_fvgs = []
 
             for i in range(2, n):
-                # Datos de las velas
                 last2_high = df['high'].iloc[i - 2]
                 last2_low = df['low'].iloc[i - 2]
                 last_close = df['close'].iloc[i - 1]
@@ -103,27 +97,21 @@ class FVGDetector:
                 current_low = df['low'].iloc[i]
                 current_time = df['time'].iloc[i]
 
-                # Cálculo de cambio porcentual (para umbral)
                 bar_delta_pct = abs(last_close - last_open) / last_open if last_open != 0 else 0
 
-                # Umbral: si auto_threshold está activo, usamos un promedio móvil simple de la volatilidad reciente
                 if self.auto_threshold:
-                    # Umbral dinámico simplificado: 0.2 * ATR / last_open (o promedio)
                     threshold = 0.2 * atr[i] / ((last_open + last_close) / 2) if last_open != 0 else 0
                 else:
-                    threshold = self.min_gap_percent / 100.0  # se pasó como porcentaje
+                    threshold = self.min_gap_percent / 100.0
 
-                # Condiciones de FVG
                 bullish_fvg = (current_low > last2_high) and (last_close > last2_high) and (bar_delta_pct > threshold)
                 bearish_fvg = (current_high < last2_low) and (last_close < last2_low) and (bar_delta_pct > threshold)
 
-                # --- iFVG: revisar FVGs activos que cruzan precio ---
-                new_ifvgs = []  # para insertar al inicio después
+                new_ifvgs = []
                 for fvg in active_fvgs:
                     if fvg['type'] == 'iFVG':
-                        continue  # un iFVG no genera otro iFVG (evitar recursión)
+                        continue
 
-                    # iFVG Bullish: cruce de un FVG bajista de abajo hacia arriba
                     if fvg['bias'] == 'BEARISH' and current_low <= fvg['top'] and current_high >= fvg['bottom'] and df['close'].iloc[i] > fvg['bottom']:
                         gap_size = fvg['top'] - fvg['bottom']
                         strength = self._strength(gap_size, atr[i]) if self.show_strength else 0.0
@@ -132,19 +120,17 @@ class FVGDetector:
                             'bias': 'BULLISH',
                             'time': current_time,
                             'index': i,
-                            'top': fvg['bottom'],          # invertido
+                            'top': fvg['bottom'],
                             'bottom': fvg['top'],
                             'strength': strength,
                             'mitigated': False,
                             'box': self._make_box(last_time, current_time, fvg['bottom'], fvg['top'], self.extend_bars)
                         }
                         new_ifvgs.append(ifvg)
-                        # Marcar el FVG original como mitigado y eliminarlo
                         fvg['mitigated'] = True
                         active_fvgs.remove(fvg)
-                        break  # solo uno por iteración? El Pine recorre todos sin break, podemos seguir
+                        break
 
-                    # iFVG Bearish: cruce de un FVG alcista de arriba hacia abajo
                     elif fvg['bias'] == 'BULLISH' and current_high >= fvg['bottom'] and current_low <= fvg['top'] and df['close'].iloc[i] < fvg['top']:
                         gap_size = fvg['top'] - fvg['bottom']
                         strength = self._strength(gap_size, atr[i]) if self.show_strength else 0.0
@@ -153,7 +139,7 @@ class FVGDetector:
                             'bias': 'BEARISH',
                             'time': current_time,
                             'index': i,
-                            'top': fvg['top'],            # mismo top/bottom pero invertido bias
+                            'top': fvg['top'],
                             'bottom': fvg['bottom'],
                             'strength': strength,
                             'mitigated': False,
@@ -164,10 +150,8 @@ class FVGDetector:
                         active_fvgs.remove(fvg)
                         break
 
-                # Agregar los iFVGs detectados al principio de la lista general (como unshift)
                 fvgs = new_ifvgs + fvgs
 
-                # --- Nuevo FVG ---
                 if bullish_fvg:
                     gap_size = current_low - last2_high
                     strength = self._strength(gap_size, atr[i]) if self.show_strength else 0.0
@@ -202,19 +186,14 @@ class FVGDetector:
                     fvgs.insert(0, fvg_new)
                     active_fvgs.append(fvg_new)
 
-                # --- Mitigación de FVGs activos por precio actual (cierre, o high/low) ---
-                # Según Pine: bullish FVG se mitiga cuando low <= bottom
-                #            bearish FVG se mitiga cuando high >= top
                 for fvg in active_fvgs:
                     if fvg['mitigated']:
                         continue
                     if fvg['bias'] == 'BULLISH' and current_low <= fvg['bottom']:
                         fvg['mitigated'] = True
-                        # No eliminamos de active_fvgs; simplemente marcamos
                     elif fvg['bias'] == 'BEARISH' and current_high >= fvg['top']:
                         fvg['mitigated'] = True
 
-                # Limpiar active_fvgs de los mitigados (opcional, mejora rendimiento)
                 active_fvgs = [f for f in active_fvgs if not f['mitigated']]
 
             logger.success(f"FVGs detectados: {len(fvgs)}")
@@ -224,11 +203,7 @@ class FVGDetector:
             logger.exception(f"Error detectando FVGs: {e}")
             return fvgs
 
-    # =====================================================
-    # MÉTODOS AUXILIARES
-    # =====================================================
     def _calculate_atr(self, df: pd.DataFrame, length: int) -> list:
-        """Calcula el ATR (Average True Range) para toda la serie."""
         high = df['high'].values
         low = df['low'].values
         close = df['close'].values
@@ -239,11 +214,9 @@ class FVGDetector:
                 abs(high[i] - close[i - 1]),
                 abs(low[i] - close[i - 1])
             )
-        # ATR simple: media móvil del True Range
         atr = np.full(len(df), np.nan)
         if len(df) > length:
             atr[length:] = pd.Series(tr).rolling(window=length).mean().values[length:]
-        # Rellenar con el primer valor válido hacia atrás
         first_valid = length if length < len(df) else 0
         for i in range(first_valid, len(df)):
             if i >= first_valid:
@@ -251,15 +224,12 @@ class FVGDetector:
         return atr
 
     def _strength(self, gap_size: float, atr_val: float) -> float:
-        """Calcula la fuerza del FVG como porcentaje del ATR (0-100)."""
         if atr_val and atr_val > 0:
             return min((gap_size / atr_val) * 100, 100.0)
         return 0.0
 
-    def _make_box(self, left_time: int, right_time: int, top: float, bottom: float, extend: int):
-        """Crea el diccionario con las coordenadas de la caja para dibujo."""
-        # Extender hacia la derecha el número de barras
-        bar_duration = right_time - left_time  # asumiendo time uniforme (ej. timestamp Unix)
+    def _make_box(self, left_time, right_time, top, bottom, extend=1):
+        bar_duration = right_time - left_time
         return {
             'left_time': left_time,
             'right_time': right_time + extend * bar_duration,
@@ -268,56 +238,9 @@ class FVGDetector:
         }
 
 
-# =====================================================
-# FUNCIÓN SIMPLE DE ACCESO
-# =====================================================
 def detect_fvg(df: pd.DataFrame, **kwargs) -> list:
     """
     Función de conveniencia para detectar FVGs e iFVGs.
-
-    Parámetros
-    ----------
-    df : pd.DataFrame
-        Datos de velas con columnas: 'time','open','high','low','close'.
-    **kwargs
-        Argumentos pasados a FVGDetector.
-
-    Retorna
-    -------
-    list[dict]
-        Lista de FVGs/iFVGs detectados.
     """
     detector = FVGDetector(**kwargs)
     return detector.detect(df)
-
-
-# =====================================================
-# EJEMPLO DE USO (si se ejecuta como script)
-# =====================================================
-if __name__ == "__main__":
-    import numpy as np
-    import pandas as pd
-
-    # Crear datos de ejemplo
-    np.random.seed(42)
-    n = 300
-    time = pd.date_range('2024-01-01', periods=n, freq='1h')
-    price = 100 + np.cumsum(np.random.randn(n) * 0.1)
-    df = pd.DataFrame({
-        'time': time.astype(np.int64) // 10**9,
-        'open': price + np.random.randn(n) * 0.05,
-        'high': price + np.abs(np.random.randn(n)) * 0.1,
-        'low': price - np.abs(np.random.randn(n)) * 0.1,
-        'close': price + np.random.randn(n) * 0.05
-    })
-    # Ajustar para que high >= open,close y low <= open,close
-    df['high'] = df[['open', 'high', 'close']].max(axis=1)
-    df['low'] = df[['open', 'low', 'close']].min(axis=1)
-
-    # Detectar FVGs
-    detector = FVGDetector(min_gap_percent=0.05, show_strength=True)
-    fvg_list = detector.detect(df)
-
-    print(f"Total FVGs/iFVGs: {len(fvg_list)}")
-    for f in fvg_list[:5]:
-        print(f"{f['type']} {f['bias']} | top:{f['top']:.4f} bottom:{f['bottom']:.4f} | strength:{f['strength']:.1f}% | mitigated:{f['mitigated']}")

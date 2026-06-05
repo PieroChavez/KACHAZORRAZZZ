@@ -57,6 +57,11 @@ class MarketDataManager:
 
         alias = {
 
+            "XAUEURM": [
+                "XAUEURm",
+                "XAUEUR"
+            ],
+
             "XAUUSD": [
                 "XAUUSD",
                 "XAUUSDm",
