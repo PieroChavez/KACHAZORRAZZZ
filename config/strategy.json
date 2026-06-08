@@ -1,7 +1,7 @@
 {
   "mode": "DEMO",
-  "active_symbols": ["XAUUSDm", "XAUEURm"],
-  "inactive_symbols": ["NAS100", "XAGUSDm"],
+  "active_symbols": ["XAUEURm"],
+  "inactive_symbols": ["XAUUSDm", "NAS100", "XAGUSDm"],
   "loop_sleep_seconds": 5,
   "min_score_to_trade": 50.0,
   "high_confidence_score": 90.0,
@@ -43,7 +43,7 @@
       "max_daily_trades": 9999,
       "allowed_sessions": [],
       "cooldown_bars_m1": 0,
-      "scale_entries": 3,
+      "scale_entries": 2,
       "scale_close_at_tp_pct": 0.5,
       "scale_close_ratio": 0.5,
       "pattern_min_scores": {"CYCLE_BULLISH": 90, "CYCLE_BEARISH": 90}
@@ -68,7 +68,7 @@
       "max_daily_trades": 5,
       "allowed_sessions": [],
       "cooldown_bars_m1": 0,
-      "scale_entries": 3,
+      "scale_entries": 2,
       "scale_close_at_tp_pct": 0.5,
       "scale_close_ratio": 0.5,
       "pattern_min_scores": {"CYCLE_BULLISH": 85, "CYCLE_BEARISH": 85}

@@ -36,7 +36,7 @@ class FractalDB:
     def __init__(self, symbol: str, db_path: Optional[Path] = None):
         self.symbol = symbol
         if db_path is None:
-            db_path = Path(__file__).parent.parent.parent / "data" / "fractal_state.db"
+            db_path = Path(__file__).parent.parent.parent / "data" / "db" / symbol / "fractal_state.db"
         db_path.parent.mkdir(exist_ok=True)
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._init_db()
@@ -80,6 +80,13 @@ class FractalDB:
             self._conn.execute("ALTER TABLE fractals ADD COLUMN is_subfractal INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass
+        try:
+            self._conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_fractal
+                ON fractals(symbol, timeframe, direction, bos_index, bos_time)
+            """)
+        except sqlite3.OperationalError:
+            pass
         self._conn.commit()
 
     def _load_cache(self):
@@ -108,7 +115,7 @@ class FractalDB:
     def add_fractal(self, f: Fractal) -> int:
         now = datetime.utcnow()
         cur = self._conn.execute("""
-            INSERT INTO fractals (symbol, timeframe, direction, level0, level1,
+            INSERT OR IGNORE INTO fractals (symbol, timeframe, direction, level0, level1,
                 fib_072, swing_high, swing_low, bos_index, bos_time,
                 created_at, entry_price, sl_price, is_subfractal, note)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -118,6 +125,10 @@ class FractalDB:
               now.isoformat(), f.entry_price, f.sl_price,
               int(f.is_subfractal), f.note))
         self._conn.commit()
+        if cur.rowcount == 0:
+            logger.debug(f"[{f.symbol}] Fractal duplicado ignorado "
+                         f"{f.timeframe} {f.direction} idx={f.bos_index}")
+            return 0
         f.id = cur.lastrowid
         f.created_at = now
         f.active = True

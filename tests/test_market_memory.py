@@ -13,7 +13,7 @@ def db_path(tmpdir):
 
 @pytest.fixture
 def memory(db_path):
-    return MarketMemory(db_path)
+    return MarketMemory("XAUUSDm", db_path)
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ class TestLevelMemory:
 
 class TestMarketMemory:
     def test_init_creates_db(self, db_path):
-        memory = MarketMemory(db_path)
+        memory = MarketMemory("XAUUSDm", db_path)
         assert db_path.exists()
         conn = __import__("sqlite3").connect(str(db_path))
         tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()

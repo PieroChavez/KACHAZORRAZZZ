@@ -1,18 +1,15 @@
 {
   "mt5": {
-    "path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
-    "login": 198429153,
-    "password": "Pi77697279.",
-    "server": "Exness-MT5Trial11"
+    "path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
   },
   "exness": {
-    "account_id": "your_account_id",
-    "api_key": "your_api_key",
-    "api_secret": "your_api_secret"
+    "account_id": "",
+    "api_key": "",
+    "api_secret": ""
   },
   "oanda": {
-    "api_key": "your_oanda_api_key",
-    "account_id": "your_oanda_account_id",
+    "api_key": "",
+    "account_id": "",
     "environment": "practice"
   },
   "symbols": {

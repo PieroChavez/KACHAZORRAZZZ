@@ -13,7 +13,7 @@ def db_path(tmpdir):
 
 @pytest.fixture
 def meta(db_path):
-    return MetaLearner(db_path)
+    return MetaLearner("XAUUSDm", db_path)
 
 
 def make_trade(symbol="XAUUSDm", direction="BUY", profit=100.0, regime="RANGING",
@@ -67,7 +67,7 @@ class TestPatternPerformance:
 
 class TestMetaLearner:
     def test_init_creates_db(self, db_path):
-        meta = MetaLearner(db_path)
+        meta = MetaLearner("XAUUSDm", db_path)
         assert db_path.exists()
         conn = __import__("sqlite3").connect(str(db_path))
         tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()

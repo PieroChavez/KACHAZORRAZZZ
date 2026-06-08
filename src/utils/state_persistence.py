@@ -6,14 +6,17 @@ import json
 import asyncio
 from datetime import datetime, date
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List as ListType
 from loguru import logger
 
 
 class StatePersistence:
     """Async SQLite persistence for trading bot state"""
 
-    def __init__(self, db_path: Path):
+    def __init__(self, symbol: str, db_path: Optional[Path] = None):
+        self.symbol = symbol
+        if db_path is None:
+            db_path = Path(__file__).parent.parent.parent / "data" / "db" / symbol / "trading_state.db"
         self.db_path = db_path
         self._db: Optional[aiosqlite.Connection] = None
 

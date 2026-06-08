@@ -59,7 +59,7 @@ class FractalLearner:
     def __init__(self, symbol: str, db_path: Optional[Path] = None):
         self.symbol = symbol
         if db_path is None:
-            db_path = Path(__file__).parent.parent.parent / "data" / "fractal_learner.db"
+            db_path = Path(__file__).parent.parent.parent / "data" / "db" / symbol / "fractal_learner.db"
         db_path.parent.mkdir(exist_ok=True)
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._init_db()

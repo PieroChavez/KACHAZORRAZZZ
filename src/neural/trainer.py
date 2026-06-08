@@ -11,12 +11,17 @@ from src.neural.features import load_trade_records, FEATURE_DIM
 
 logger = logging.getLogger(__name__)
 
-MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "models"
-MODEL_PATH = MODEL_DIR / "trade_predictor.json"
-SCALER_PATH = MODEL_DIR / "scaler.json"
+BASE_MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "models"
+
+
+def _model_paths(symbol: str):
+    model_dir = BASE_MODEL_DIR / symbol
+    model_dir.mkdir(parents=True, exist_ok=True)
+    return model_dir / "trade_predictor.json", model_dir / "scaler.json"
 
 
 def train(
+    symbol: str = "",
     db_path: Optional[Path] = None,
     hidden_layers: list = None,
     epochs: int = 500,
@@ -25,7 +30,7 @@ def train(
     force: bool = False,
 ) -> NeuralNetwork:
     if db_path is None:
-        db_path = Path(__file__).resolve().parent.parent.parent / "data" / "meta_learning.db"
+        db_path = Path(__file__).resolve().parent.parent.parent / "data" / "db" / symbol / "meta_learning.db"
 
     if not db_path.exists():
         raise FileNotFoundError(f"Database not found: {db_path}")
@@ -67,34 +72,37 @@ def train(
         val_acc = nn.accuracy(y_val, nn.forward(X_val))
         logger.info(f"Validation accuracy: {val_acc:.2%}")
 
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    nn.save(MODEL_PATH)
+    model_path, scaler_path = _model_paths(symbol)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    nn.save(model_path)
 
     scaler = {"mean": mean.tolist(), "std": std.tolist()}
-    with open(SCALER_PATH, "w") as f:
+    with open(scaler_path, "w") as f:
         json.dump(scaler, f)
-    logger.info(f"Scaler saved to {SCALER_PATH}")
+    logger.info(f"Scaler saved to {scaler_path}")
 
     return nn
 
 
-def load_model() -> Optional[NeuralNetwork]:
-    if not MODEL_PATH.exists():
-        logger.warning(f"No trained model found at {MODEL_PATH}")
+def load_model(symbol: str = "") -> Optional[NeuralNetwork]:
+    model_path, _ = _model_paths(symbol)
+    if not model_path.exists():
+        logger.warning(f"No trained model found at {model_path}")
         return None
-    return NeuralNetwork.load(MODEL_PATH)
+    return NeuralNetwork.load(model_path)
 
 
-def load_scaler() -> Optional[dict]:
-    if not SCALER_PATH.exists():
+def load_scaler(symbol: str = "") -> Optional[dict]:
+    _, scaler_path = _model_paths(symbol)
+    if not scaler_path.exists():
         return None
-    with open(SCALER_PATH) as f:
+    with open(scaler_path) as f:
         return json.load(f)
 
 
-def get_prediction(features: np.ndarray) -> Optional[float]:
-    nn = load_model()
-    scaler = load_scaler()
+def get_prediction(features: np.ndarray, symbol: str = "") -> Optional[float]:
+    nn = load_model(symbol)
+    scaler = load_scaler(symbol)
     if nn is None or scaler is None:
         return None
 

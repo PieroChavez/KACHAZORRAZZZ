@@ -24,12 +24,16 @@ class MT5Client:
     """MetaTrader 5 client for data retrieval and order execution"""
 
     def __init__(self, login: Optional[int] = None, password: Optional[str] = None,
-                 server: Optional[str] = None):
+                 server: Optional[str] = None, path: Optional[str] = None):
         self.login = int(login) if login is not None else None
         self.password = password
         self.server = server
+        self.path = path
         self.connected = False
         self._symbol_cache: Dict[str, str] = {}
+
+    def _find_mt5_path(self) -> Optional[str]:
+        return self.path
 
     def resolve_symbol(self, symbol: str) -> str:
         """Try to resolve a canonical symbol name to the broker's actual symbol.
@@ -64,24 +68,36 @@ class MT5Client:
     def connect(self) -> bool:
         mt5.shutdown()
         time.sleep(1)
-        if not mt5.initialize():
-            logger.error("MT5 initialization failed")
-            return False
+
+        path = self._find_mt5_path()
+        ok = mt5.initialize(path=path) if path else mt5.initialize()
+        if not ok:
+            err = mt5.last_error()
+            logger.warning(f"MT5 initialize failed: {err}, retrying without path...")
+            mt5.shutdown()
+            time.sleep(1)
+            ok = mt5.initialize()
+            if not ok:
+                err = mt5.last_error()
+                logger.error(f"MT5 initialize failed (2nd attempt): {err}")
+                logger.error("Asegúrate de: 1) MT5 esté instalado, 2) Abrirlo manualmente una vez para aceptar licencia")
+                return False
 
         if self.login and self.password and self.server:
             account = mt5.account_info()
-            if account is not None and account.login == self.login and account.server == self.server:
-                logger.info(f"Already connected to {account.server} (login={account.login})")
+            if account is not None and account.login == self.login:
+                logger.info(f"Already logged in as {account.login}@{account.server}")
                 self.connected = True
                 return True
-            if account is not None:
-                logger.info(f"Switching account from {account.login}@{account.server} to {self.login}@{self.server}")
+            logger.info(f"Logging in as {self.login}@{self.server}...")
             if not mt5.login(self.login, password=self.password, server=self.server):
-                logger.error(f"MT5 login failed: {mt5.last_error()}")
+                err = mt5.last_error()
+                logger.error(f"MT5 login failed (login={self.login}, server={self.server}): {err}")
+                mt5.shutdown()
                 return False
 
         self.connected = True
-        logger.info("MT5 connected successfully")
+        logger.info(f"MT5 connected: login={self.login}, server={self.server}")
         return True
 
     def ensure_connected(self) -> bool:
@@ -126,6 +142,9 @@ class MT5Client:
             "digits": info.digits,
             "point": info.point,
             "spread": info.spread,
+            "trade_tick_size": info.trade_tick_size,
+            "volume_min": info.volume_min,
+            "volume_step": info.volume_step,
         }
 
     def _ensure_symbol(self, symbol: str) -> bool:

@@ -67,10 +67,11 @@ class PatternPerformance:
 
 
 class MetaLearner:
-    def __init__(self, db_path: Optional[Path] = None,
+    def __init__(self, symbol: str, db_path: Optional[Path] = None,
                  base_weights: Optional[ScoringConfig] = None):
+        self.symbol = symbol
         if db_path is None:
-            db_path = Path(__file__).parent.parent.parent / "data" / "meta_learning.db"
+            db_path = Path(__file__).parent.parent.parent / "data" / "db" / symbol / "meta_learning.db"
         self.db_path = db_path
         self.db_path.parent.mkdir(exist_ok=True)
         self.base_weights = base_weights

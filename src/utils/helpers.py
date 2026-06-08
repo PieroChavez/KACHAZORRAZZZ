@@ -36,7 +36,7 @@ def pip_size(symbol: str) -> float:
     if "JPY" in s:
         return 0.01
     if "XAU" in s or s == "GOLD":
-        return 0.1
+        return 0.01
     if "XAG" in s or s == "SILVER":
         return 0.01
     if s in ("NAS100", "US100", "NDX", "DJI30", "US30", "SPX500", "USTEC", "USTEC_x100"):

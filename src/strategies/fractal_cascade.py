@@ -41,18 +41,27 @@ class FractalCascadeStrategy:
         self._prev_swings: Dict[str, dict] = {}
         self._alerts: Dict[int, datetime] = {}       # fractal_id → alert_time
         self._last_analysis: Optional[datetime] = None
+        self._last_scanned_candle: Dict[str, pd.Timestamp] = {}
 
     # ── Main Entry ─────────────────────────────────────────────────────
 
-    def evaluate(self, timeframes: Dict[str, pd.DataFrame], current_time: datetime):
+    def manage_orders(self):
+        self.orders.manage_all(datetime.utcnow(), None)
+
+    def evaluate(self, timeframes: Dict[str, pd.DataFrame], current_time: datetime,
+                 skip_entries: bool = False):
         before_packs = {p.id for p in self.orders.get_active_packs()}
+
+        df_5m = timeframes.get("5min")
+        self.orders.manage_all(current_time, df_5m)
+
+        if skip_entries:
+            return
 
         self._scan_macro_fractals(timeframes)
         self._scan_subfractals_5m(timeframes.get("5min"))
         self._check_entry_conditions(timeframes, current_time)
         self._cleanse_fractals()
-        df_5m = timeframes.get("5min")
-        self.orders.manage_all(current_time, df_5m)
 
         after_packs = {p.id for p in self.orders.get_active_packs()}
         for pid in before_packs - after_packs:
@@ -74,6 +83,11 @@ class FractalCascadeStrategy:
             df = timeframes.get(tf)
             if df is None or len(df) < 30:
                 continue
+            last_time = df["time"].iloc[-1]
+            prev_time = self._last_scanned_candle.get(tf)
+            if prev_time is not None and prev_time == last_time:
+                continue
+            self._last_scanned_candle[tf] = last_time
             self._detect_bullish(tf, df, is_subfractal=False)
             self._detect_bearish(tf, df, is_subfractal=False)
 
@@ -149,7 +163,7 @@ class FractalCascadeStrategy:
             return
         fib_range = level0 - level1
         fib_072 = level1 + FIB_LEVEL * fib_range
-        if self._has_duplicate(tf, "bullish", level1):
+        if self._has_duplicate(tf, "bullish", level1, is_subfractal):
             return
 
         f = Fractal(
@@ -171,7 +185,7 @@ class FractalCascadeStrategy:
             return
         fib_range = level1 - level0
         fib_072 = level0 + FIB_LEVEL * fib_range
-        if self._has_duplicate(tf, "bearish", level1):
+        if self._has_duplicate(tf, "bearish", level1, is_subfractal):
             return
 
         f = Fractal(
@@ -185,9 +199,11 @@ class FractalCascadeStrategy:
         )
         self.db.add_fractal(f)
 
-    def _has_duplicate(self, tf: str, direction: str, level1: float) -> bool:
+    def _has_duplicate(self, tf: str, direction: str, level1: float,
+                        is_subfractal: bool = False) -> bool:
         for ef in self.db.get_active_fractals():
-            if ef.timeframe == tf and ef.direction == direction:
+            if (ef.timeframe == tf and ef.direction == direction
+                    and ef.is_subfractal == is_subfractal):
                 if abs(ef.level1 - level1) / (abs(ef.level0 - ef.level1) + 1e-10) < 0.1:
                     return True
         return False
@@ -203,6 +219,9 @@ class FractalCascadeStrategy:
         if price is None:
             return
         df_5m = timeframes.get("5min")
+        info = self.mt5.get_symbol_info(self.symbol)
+        bid = info["bid"] if info else price - 0.5
+        ask = info["ask"] if info else price + 0.5
 
         for f in candidates:
             if not self._fractal_valid(f, price):
@@ -220,6 +239,33 @@ class FractalCascadeStrategy:
                 logger.info(f"[{self.symbol}] {tag} #{f.id} invalidado (estructura superada)")
                 continue
 
+            is_buy = f.direction == "bullish"
+            wrong_side = (is_buy and f.fib_072 >= ask) or (not is_buy and f.fib_072 <= bid)
+            if wrong_side:
+                self._cancel_pending_for(f)
+                self.db.invalidate(f.id)
+                self._alerts.pop(f.id, None)
+                tag = "SUB" if f.is_subfractal else "MACRO"
+                logger.info(f"[{self.symbol}] {tag} #{f.id} invalidado (entry en lado incorrecto)")
+                continue
+
+            sl_dist = abs(f.fib_072 - f.level1)
+            price_dist = abs(f.fib_072 - price)
+            if price_dist > sl_dist:
+                self._cancel_pending_for(f)
+                self.db.invalidate(f.id)
+                self._alerts.pop(f.id, None)
+                tag = "SUB" if f.is_subfractal else "MACRO"
+                logger.info(f"[{self.symbol}] {tag} #{f.id} invalidado (limit muy lejos: "
+                           f"price_dist={price_dist:.2f} > sl_dist={sl_dist:.2f})")
+                continue
+
+            if not self._macro_bias_allows(f, df_5m):
+                continue
+
+            if not self._hh_ll_confirms(f, df_5m):
+                continue
+
             if f.is_subfractal or f.timeframe == "15min":
                 self._execute_entry(f, price, df_5m)
             else:
@@ -230,12 +276,16 @@ class FractalCascadeStrategy:
         session = self.session_profiler.get_session()
         vol_total = self._calc_volume(f, session)
         direction = "BUY" if f.direction == "bullish" else "SELL"
-        pack = self.orders.place_pack(
-            f.id, direction, f.fib_072, f.level1, f.timeframe, vol_total
-        )
-        if pack:
-            self.db.mark_entry_hit(f.id, f.fib_072, f.level1)
-            self._alerts.pop(f.id, None)
+        try:
+            pack = self.orders.place_pack(
+                f.id, direction, f.fib_072, f.level1, f.timeframe, vol_total
+            )
+            if pack:
+                self.db.mark_entry_hit(f.id, f.fib_072, f.level1)
+                self._alerts.pop(f.id, None)
+        except Exception:
+            logger.exception(f"[{self.symbol}] Error al ejecutar entrada fractal #{f.id}, invalidando")
+            self.db.invalidate(f.id)
             tag = "SUB" if f.is_subfractal else "MACRO"
             dir_label = f.direction
             rng = abs(f.level0 - f.level1)
@@ -274,6 +324,60 @@ class FractalCascadeStrategy:
             if pack.fractal_id == f.id:
                 self.orders.cancel_pack(pack.id)
                 break
+
+    def _macro_bias_allows(self, f: Fractal, df_5m: pd.DataFrame) -> bool:
+        active = self.db.get_active_fractals()
+        macro_bearish = any(
+            not ef.is_subfractal and ef.direction == "bearish" and ef.active
+            for ef in active
+        )
+        macro_bullish = any(
+            not ef.is_subfractal and ef.direction == "bullish" and ef.active
+            for ef in active
+        )
+
+        if macro_bearish and f.direction == "bullish":
+            if df_5m is None or len(df_5m) < 20:
+                return False
+            _, lows = find_swing_points(df_5m, lookback=3)
+            if len(lows) < 2:
+                logger.info(f"[{self.symbol}] Fractal #{f.id} BUY bloqueado por macro bajista (sin HL en 5M)")
+                return False
+            hl_detected = df_5m["low"].iloc[lows[-1]] > df_5m["low"].iloc[lows[-2]]
+            if not hl_detected:
+                logger.info(f"[{self.symbol}] Fractal #{f.id} BUY bloqueado por macro bajista (sin HL en 5M)")
+                return False
+            return True
+
+        if macro_bullish and f.direction == "bearish":
+            if df_5m is None or len(df_5m) < 20:
+                return False
+            highs, _ = find_swing_points(df_5m, lookback=3)
+            if len(highs) < 2:
+                logger.info(f"[{self.symbol}] Fractal #{f.id} SELL bloqueado por macro alcista (sin LH en 5M)")
+                return False
+            lh_detected = df_5m["high"].iloc[highs[-1]] < df_5m["high"].iloc[highs[-2]]
+            if not lh_detected:
+                logger.info(f"[{self.symbol}] Fractal #{f.id} SELL bloqueado por macro alcista (sin LH en 5M)")
+                return False
+            return True
+
+        return True
+
+    def _hh_ll_confirms(self, f: Fractal, df_5m: pd.DataFrame) -> bool:
+        if df_5m is None or len(df_5m) < 20:
+            return False
+        highs, lows = find_swing_points(df_5m, lookback=3)
+        if f.direction == "bullish":
+            if len(highs) < 2:
+                logger.info(f"[{self.symbol}] Fractal #{f.id} BUY saltado: sin estructura HH/LH en 5M")
+                return False
+            return True
+        else:
+            if len(lows) < 2:
+                logger.info(f"[{self.symbol}] Fractal #{f.id} SELL saltado: sin estructura LL/HL en 5M")
+                return False
+            return True
 
     def _get_confirmation(self, f: Fractal, df_5m: pd.DataFrame) -> bool:
         if df_5m is None or len(df_5m) < 10:
