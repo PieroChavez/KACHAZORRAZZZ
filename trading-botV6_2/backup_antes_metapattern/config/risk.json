@@ -1,8 +1,0 @@
-{
-  "risk_per_trade": 0.02,
-  "max_daily_loss": 1.0,
-  "max_positions": 999,
-  "atr_multiplier_sl": 2.0,
-  "atr_multiplier_tp": 4.0,
-  "min_reward_risk_ratio": 2.0
-}

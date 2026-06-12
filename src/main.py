@@ -72,12 +72,18 @@ class TradingBot:
         setup_logging()
 
         import os
-        broker_config = self.config["broker"]["mt5"]
+        login = os.environ.get("MT5_LOGIN")
+        password = os.environ.get("MT5_PASSWORD")
+        server = os.environ.get("MT5_SERVER")
+        path = os.environ.get("MT5_PATH") or self.config["broker"]["mt5"].get("path")
+        if not all([login, password, server]):
+            missing = [k for k, v in [("MT5_LOGIN", login), ("MT5_PASSWORD", password), ("MT5_SERVER", server)] if not v]
+            raise ValueError(f"Credenciales MT5 faltantes en .env: {', '.join(missing)}")
         self.mt5 = MT5Client(
-            login=os.environ.get("MT5_LOGIN") or broker_config.get("login"),
-            password=os.environ.get("MT5_PASSWORD") or broker_config.get("password"),
-            server=os.environ.get("MT5_SERVER") or broker_config.get("server"),
-            path=os.environ.get("MT5_PATH") or broker_config.get("path"),
+            login=int(login),
+            password=password,
+            server=server,
+            path=path,
         )
 
         self.fetcher = MultiTimeframeFetcher(self.mt5)
@@ -109,16 +115,33 @@ class TradingBot:
         self.start_time = 0.0
         self._last_meta_analysis: Dict[str, float] = {}
         self._meta_analysis_interval = 14400  # cada 4 horas
+        self._last_account_log: float = 0.0
+        self._account_log_interval = 300  # cada 5 minutos
 
     async def _initialize_state(self):
         for sym in self.active_symbols:
             await self.state_persistence[sym].initialize()
 
+    def _log_account_status(self):
+        info = self.mt5.get_account_info()
+        if info:
+            logger.info(
+                f"📊 Cuenta: balance={info['balance']:.2f} | "
+                f"equity={info['equity']:.2f} | "
+                f"margin={info['margin']:.2f} | "
+                f"free_margin={info['free_margin']:.2f} | "
+                f"profit={info['profit']:+.2f}"
+            )
+        return info
+
     async def _save_state_periodic(self):
+        account = self._log_account_status()
         for sym in self.active_symbols:
+            extra = {"balance": account["balance"]} if account else None
             await self.state_persistence[sym].save_daily_state(
                 daily_loss=0.0,
                 trades_count=0,
+                extra_state=extra,
             )
 
     def start(self, max_duration: int = 0):
@@ -132,6 +155,8 @@ class TradingBot:
         if not self.mt5.connect():
             logger.error("Failed to connect to MT5. Exiting.")
             return
+
+        self._log_account_status()
 
         for sym in self.active_symbols:
             self.fetcher.init_historical(sym, count=5000)
@@ -160,6 +185,11 @@ class TradingBot:
             self.loop.run_until_complete(self._save_state_periodic())
 
             self._manage_positions()
+
+            now = time.time()
+            if now - self._last_account_log > self._account_log_interval:
+                self._last_account_log = now
+                self._log_account_status()
 
             for sym in self.active_symbols:
                 last_time = self._last_meta_analysis.get(sym, 0)
