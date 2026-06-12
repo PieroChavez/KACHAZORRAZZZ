@@ -286,17 +286,8 @@ class FractalCascadeStrategy:
         except Exception:
             logger.exception(f"[{self.symbol}] Error al ejecutar entrada fractal #{f.id}, invalidando")
             self.db.invalidate(f.id)
-            tag = "SUB" if f.is_subfractal else "MACRO"
-            dir_label = f.direction
-            rng = abs(f.level0 - f.level1)
-            tp = pack.tp1 if pack.tp1 else 0
-            self.learner.record_entry(
-                pack.id, f.id, f.timeframe, dir_label, f.is_subfractal,
-                f.fib_072, f.level1, tp, vol_total, rng, f.fib_072,
-                session=session.value if session else ""
-            )
-            logger.info(f"[{self.symbol}] [{tag}] Entrada #{f.id} {direction} "
-                         f"@ {f.fib_072:.2f} SL={f.level1:.2f}")
+            self._alerts.pop(f.id, None)
+            return
 
     def _current_price(self) -> Optional[float]:
         info = self.mt5.get_symbol_info(self.symbol)

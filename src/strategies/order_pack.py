@@ -54,14 +54,17 @@ class OrderPack:
 
 
 class OrderPackManager:
-    def __init__(self, mt5_client: MT5Client, symbol: str):
+    def __init__(self, mt5_client: MT5Client, symbol: str, copy_enabled: bool = True):
         self.mt5_client = mt5_client
         self.symbol = symbol
         self.pip = pip_size(symbol)
+        self._copy_enabled = copy_enabled
         self._executor = None
         db_path = Path(__file__).parent.parent.parent / "data" / "db" / symbol / "order_packs.db"
         db_path.parent.mkdir(exist_ok=True)
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._init_db()
         self._packs: Dict[int, OrderPack] = {}
         self._subs: Dict[int, List[SubOrder]] = {}
@@ -94,6 +97,25 @@ class OrderPackManager:
                 status TEXT DEFAULT 'active',
                 profit REAL DEFAULT 0,
                 closed_at TEXT
+            )
+        """)
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS copy_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action TEXT NOT NULL,
+                symbol TEXT,
+                direction TEXT,
+                volume REAL,
+                price REAL,
+                sl REAL,
+                tp REAL,
+                pack_id INTEGER,
+                sub_number INTEGER DEFAULT 0,
+                executed INTEGER DEFAULT 0,
+                real_ticket INTEGER,
+                error TEXT,
+                created_at TEXT,
+                executed_at TEXT
             )
         """)
         self._conn.commit()
@@ -138,6 +160,22 @@ class OrderPackManager:
                     pos = self._get_position(sub.ticket)
                     if pos:
                         self._peak_prices[sub.ticket] = pos["price_current"]
+
+    def _write_signal(self, action: str, pack_id: int, sub_number: int = 0,
+                       symbol: str = "", direction: str = "",
+                       volume: float = 0.0, price: float = 0.0,
+                       sl: float = 0.0, tp: float = 0.0):
+        if not self._copy_enabled:
+            return
+        now = datetime.utcnow().isoformat()
+        self._conn.execute("""
+            INSERT INTO copy_signals
+                (action, symbol, direction, volume, price, sl, tp,
+                 pack_id, sub_number, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, (action, symbol or self.symbol, direction, volume, price,
+              sl, tp, pack_id, sub_number, now))
+        self._conn.commit()
 
     def _place_limit_order(self, direction: str, volume: float, entry_price: float,
                            sl: float, tp: float, comment: str) -> Optional[int]:
@@ -223,6 +261,12 @@ class OrderPackManager:
             )
             tickets.append(ticket or 0)
 
+        # Write signals BEFORE sub_orders commit so CopyTrader gets them
+        for i in range(2):
+            self._write_signal("PLACE_LIMIT", pack_id, i + 1,
+                               direction=direction, volume=vol_per,
+                               price=entry_price, sl=sl_price, tp=tp_targets[i])
+
         subs = []
         for i in range(2):
             sub = SubOrder(pack_id=pack_id, position_number=i + 1,
@@ -238,11 +282,29 @@ class OrderPackManager:
             """, (pack_id, i + 1, tickets[i], direction, self.symbol, vol_per,
                   entry_price, sl_price, tp_targets[i], sl_price))
             subs.append(sub)
-        self._conn.commit()
+
+        # Retry commit up to 3 times to handle concurrent access
+        for attempt in range(3):
+            try:
+                self._conn.commit()
+                break
+            except Exception as e:
+                if attempt < 2:
+                    import time
+                    time.sleep(0.2 * (attempt + 1))
+                else:
+                    logger.error(f"[{self.symbol}] Commit falló tras 3 intentos: {e}")
+                    # Cancel MT5 orders to avoid orphans
+                    for t in tickets:
+                        if t:
+                            mt5.order_delete(t)
+                    return None
+
         self._subs[pack_id] = subs
 
         logger.info(f"[{self.symbol}] Pack #{pack_id} {direction} @ {entry_price:.2f} "
                      f"SL={sl_price:.2f} | 1:1={tp1_price:.2f} 1:2={tp2_price:.2f}")
+
         return pack
 
     def _is_pending(self, ticket: int) -> bool:
@@ -412,6 +474,11 @@ class OrderPackManager:
         self._conn.commit()
         logger.info(f"[{self.symbol}] Pack #{pack.id} breakeven activado → SL={new_sl:.2f} (trailing {distance:.2f} pts detrás)")
 
+        for sub in subs:
+            if sub.status == "active" and sub.ticket != 0:
+                self._write_signal("MODIFY_SLTP", pack.id, sub.position_number,
+                                   sl=new_sl)
+
     def _check_trailing(self, pack: OrderPack, subs: List[SubOrder], df_5m, atr_val):
         _ = atr_val, df_5m
         is_buy = pack.direction == "BUY"
@@ -433,6 +500,8 @@ class OrderPackManager:
                 sub.sl_current = new_sl
                 self._update_sub_sl(sub)
                 pack.trailing_activated = True
+                self._write_signal("MODIFY_SLTP", pack.id, sub.position_number,
+                                   sl=new_sl)
 
         if pack.trailing_activated:
             self._conn.execute(
@@ -484,6 +553,7 @@ class OrderPackManager:
             return
         subs = self._subs.get(pack_id, [])
         for sub in subs:
+            self._write_signal("CANCEL", pack_id, sub.position_number)
             if sub.status == "active" and sub.ticket != 0:
                 result = mt5.order_send({
                     "action": mt5.TRADE_ACTION_REMOVE,
