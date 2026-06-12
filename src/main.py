@@ -4,6 +4,7 @@ con detector de velocidad/acumulación de mercado.
 """
 import json
 import signal
+import subprocess
 import sys
 import asyncio
 import time
@@ -17,6 +18,7 @@ if str(_proj_root) not in sys.path:
     sys.path.insert(0, str(_proj_root))
 del _proj_root
 
+import MetaTrader5 as mt5
 from src.adapters.mt5_client import MT5Client
 from src.core.multi_timeframe import MultiTimeframeFetcher
 from src.core.market_velocity import MarketVelocityDetector, VelocityResult
@@ -111,6 +113,7 @@ class TradingBot:
 
         self.velocity_detector = MarketVelocityDetector()
 
+        self.copy_trader_process: Optional[subprocess.Popen] = None
         self.running = False
         self.start_time = 0.0
         self._last_meta_analysis: Dict[str, float] = {}
@@ -158,6 +161,10 @@ class TradingBot:
 
         self._log_account_status()
 
+        self._cleanup_previous_session()
+
+        self._start_copy_trader()
+
         for sym in self.active_symbols:
             self.fetcher.init_historical(sym, count=5000)
 
@@ -178,52 +185,166 @@ class TradingBot:
 
         logger.info("Bot running. Press Ctrl+C to stop.")
 
-        while self.running:
-            self.loop.run_until_complete(asyncio.sleep(
-                self.config["strategy"].get("loop_sleep_seconds", 5)
-            ))
-            self.loop.run_until_complete(self._save_state_periodic())
+        try:
+            while self.running:
+                self.loop.run_until_complete(asyncio.sleep(
+                    self.config["strategy"].get("loop_sleep_seconds", 5)
+                ))
+                if not self.running:
+                    break
+                self.loop.run_until_complete(self._save_state_periodic())
 
-            self._manage_positions()
+                self._manage_positions()
 
-            now = time.time()
-            if now - self._last_account_log > self._account_log_interval:
-                self._last_account_log = now
-                self._log_account_status()
+                now = time.time()
+                if now - self._last_account_log > self._account_log_interval:
+                    self._last_account_log = now
+                    self._log_account_status()
 
-            for sym in self.active_symbols:
-                last_time = self._last_meta_analysis.get(sym, 0)
-                if time.time() - last_time > self._meta_analysis_interval:
-                    self._last_meta_analysis[sym] = time.time()
+                for sym in self.active_symbols:
+                    last_time = self._last_meta_analysis.get(sym, 0)
+                    if time.time() - last_time > self._meta_analysis_interval:
+                        self._last_meta_analysis[sym] = time.time()
+                        try:
+                            meta_result = self.meta_learner[sym].analyze_performance()
+                            if meta_result.get("analyzed"):
+                                logger.info(
+                                    f"[{sym}] Meta-Learning: {len(meta_result.get('adjustments', []))} ajustes"
+                                )
+                                for adj in meta_result["adjustments"]:
+                                    logger.info(f"  Ajuste: {adj}")
+                        except Exception as e:
+                            logger.warning(f"[{sym}] Meta-Learning analysis error: {e}")
+
+                if max_duration and (time.time() - self.start_time) >= max_duration:
+                    logger.info(f"Max duration ({max_duration // 60} min) reached, stopping.")
+                    break
+        finally:
+            self._shutdown()
+
+    def _cleanup_previous_session(self):
+        MAGICS = [20260521, 20260520, 20230505]
+        logger.info("Limpiando órdenes de sesiones anteriores...")
+
+        # Cancelar órdenes pendientes con nuestros MAGIC
+        orders = mt5.orders_get()
+        if orders:
+            cancelled = 0
+            for o in orders:
+                if o.magic in MAGICS:
+                    result = mt5.order_send({
+                        "action": mt5.TRADE_ACTION_REMOVE,
+                        "order": o.ticket,
+                    })
+                    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                        cancelled += 1
+                        logger.info(f"  Cancelada orden pendiente {o.ticket} {o.symbol} magic={o.magic}")
+            logger.info(f"Órdenes pendientes canceladas: {cancelled}")
+        else:
+            logger.info("  Sin órdenes pendientes")
+
+        # Cerrar posiciones abiertas con nuestros MAGIC
+        positions = mt5.positions_get()
+        if positions:
+            closed = 0
+            for pos in positions:
+                if pos.magic in MAGICS:
+                    close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
+                    price = mt5.symbol_info_tick(pos.symbol).bid if close_type == mt5.ORDER_TYPE_BUY else mt5.symbol_info_tick(pos.symbol).ask
+                    result = mt5.order_send({
+                        "action": mt5.TRADE_ACTION_DEAL,
+                        "symbol": pos.symbol,
+                        "volume": pos.volume,
+                        "type": close_type,
+                        "position": pos.ticket,
+                        "price": price,
+                        "deviation": 20,
+                        "magic": 20230505,
+                        "comment": "Cleanup restart",
+                    })
+                    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                        closed += 1
+                        logger.info(f"  Cerrada posición {pos.ticket} {pos.symbol} profit={pos.profit:.2f}")
+            logger.info(f"Posiciones cerradas: {closed}")
+        else:
+            logger.info("  Sin posiciones abiertas")
+
+        # Resetear DB de order_packs y fractales
+        for sym in self.active_symbols:
+            db_dir = Path(__file__).resolve().parent.parent / "data" / "db" / sym
+            if db_dir.exists():
+                import sqlite3
+                # order_packs.db
+                op_db = db_dir / "order_packs.db"
+                if op_db.exists():
                     try:
-                        meta_result = self.meta_learner[sym].analyze_performance()
-                        if meta_result.get("analyzed"):
-                            logger.info(
-                                f"[{sym}] Meta-Learning: {len(meta_result.get('adjustments', []))} ajustes"
-                            )
-                            for adj in meta_result["adjustments"]:
-                                logger.info(f"  Ajuste: {adj}")
+                        conn = sqlite3.connect(str(op_db))
+                        conn.execute("UPDATE order_packs SET status='cancelled_restart' WHERE status='active'")
+                        conn.execute("UPDATE sub_orders SET status='cancelled_restart' WHERE status='active'")
+                        conn.execute("UPDATE copy_signals SET executed=-1, error='Bot restarted' WHERE executed=0")
+                        conn.commit()
+                        conn.close()
+                        logger.info(f"  [{sym}] order_packs.db reseteado")
                     except Exception as e:
-                        logger.warning(f"[{sym}] Meta-Learning analysis error: {e}")
+                        logger.warning(f"  [{sym}] Error reseteando order_packs.db: {e}")
+                # fractal_state.db
+                fs_db = db_dir / "fractal_state.db"
+                if fs_db.exists():
+                    try:
+                        conn = sqlite3.connect(str(fs_db))
+                        conn.execute("UPDATE fractals SET active=0 WHERE active=1")
+                        conn.commit()
+                        conn.close()
+                        logger.info(f"  [{sym}] fractal_state.db reseteado")
+                    except Exception as e:
+                        logger.warning(f"  [{sym}] Error reseteando fractal_state.db: {e}")
 
-            if max_duration and (time.time() - self.start_time) >= max_duration:
-                logger.info(f"Max duration ({max_duration // 60} min) reached, stopping.")
-                break
+    def _start_copy_trader(self):
+        script = Path(__file__).resolve().parent.parent / "scripts" / "copy_trader.py"
+        if not script.exists():
+            logger.warning(f"copy_trader.py no encontrado en {script}")
+            return
+        python = sys.executable
+        try:
+            self.copy_trader_process = subprocess.Popen(
+                [python, str(script)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            logger.info(f"CopyTrader iniciado (PID={self.copy_trader_process.pid})")
+        except Exception as e:
+            logger.error(f"Error al iniciar CopyTrader: {e}")
 
-    def stop(self):
-        logger.info("Stopping bot...")
-        self.running = False
+    def _shutdown(self):
         self.scheduler.stop()
-        if hasattr(self, 'loop') and self.loop.is_running():
+        self._kill_copy_trader()
+        if hasattr(self, 'loop') and not self.loop.is_running():
             self.loop.run_until_complete(self._save_state_periodic())
             for sym in self.active_symbols:
                 self.loop.run_until_complete(self.state_persistence[sym].close())
         self.mt5.disconnect()
         logger.info("Bot stopped.")
 
+    def _kill_copy_trader(self):
+        if self.copy_trader_process and self.copy_trader_process.poll() is None:
+            logger.info(f"Deteniendo CopyTrader (PID={self.copy_trader_process.pid})...")
+            self.copy_trader_process.terminate()
+            try:
+                self.copy_trader_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.copy_trader_process.kill()
+                self.copy_trader_process.wait()
+            logger.info("CopyTrader detenido")
+
+    def stop(self):
+        self.running = False
+        self._shutdown()
+
     def _signal_handler(self, signum, frame):
         logger.info(f"Received signal {signum}")
-        self.stop()
+        self.running = False
+        self._kill_copy_trader()
+        self.mt5.disconnect()
+        logger.info("Bot stopped.")
         sys.exit(0)
 
     def _manage_positions(self):
