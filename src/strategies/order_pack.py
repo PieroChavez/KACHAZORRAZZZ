@@ -365,8 +365,8 @@ class OrderPackManager:
                                f"pos ticket={p.ticket}, sin TP")
                     break
 
-    def manage_all(self, current_time: datetime, df_5m):
-        atr_val = atr(df_5m, 14).iloc[-1] if df_5m is not None and len(df_5m) > 14 else 0
+    def manage_all(self, current_time: datetime, df_3m):
+        atr_val = atr(df_3m, 14).iloc[-1] if df_3m is not None and len(df_3m) > 14 else 0
         self._sync_pending_fills()
         for pack_id, pack in list(self._packs.items()):
             if pack.status != "active":
@@ -377,7 +377,7 @@ class OrderPackManager:
             self._check_sl_hit(pack, subs)
             self._check_breakeven(pack, subs)
             if pack.breakeven_activated:
-                self._check_trailing(pack, subs, df_5m, atr_val)
+                self._check_trailing(pack, subs, df_3m, atr_val)
 
     def _get_position(self, ticket: int) -> Optional[dict]:
         if ticket == 0:
@@ -479,8 +479,8 @@ class OrderPackManager:
                 self._write_signal("MODIFY_SLTP", pack.id, sub.position_number,
                                    sl=new_sl)
 
-    def _check_trailing(self, pack: OrderPack, subs: List[SubOrder], df_5m, atr_val):
-        _ = atr_val, df_5m
+    def _check_trailing(self, pack: OrderPack, subs: List[SubOrder], df_3m, atr_val):
+        _ = atr_val, df_3m
         is_buy = pack.direction == "BUY"
         distance = 300 * self.pip
 

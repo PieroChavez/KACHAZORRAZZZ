@@ -168,7 +168,7 @@ class FractalLearner:
                    "adjustments": [], "recommendations": []}
 
         # Per timeframe
-        for tf in ("4H", "2H", "30min", "15min", "5min"):
+        for tf in ("3H", "1H", "30min", "3min"):
             stats = self._stats_for("timeframe=? AND symbol=?", (tf, self.symbol))
             if stats and stats.total >= 2:
                 results["by_timeframe"][tf] = stats.__dict__
