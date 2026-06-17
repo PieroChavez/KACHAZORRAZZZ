@@ -409,7 +409,7 @@ class FractalCascadeStrategy:
 
     def _calc_volume(self, f: Fractal,
                      session: Optional[TradingSession] = None) -> float:
-        return 0.04
+        return 0.08
 
     @staticmethod
     def _session_vol_adj(session: TradingSession) -> float:

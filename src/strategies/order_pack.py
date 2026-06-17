@@ -1,4 +1,4 @@
-"""Dual Order Pack Manager — 2 simultaneous positions per fractal entry
+"""Single Order Pack Manager — 1 position per fractal entry
 Manages entry, SL, TP1/TP2, breakeven +10, and dynamic trailing for runner.
 """
 from dataclasses import dataclass, field
@@ -241,9 +241,7 @@ class OrderPackManager:
             logger.error(f"[{self.symbol}] Risk distance zero, cannot place pack")
             return None
 
-        tp1_price = entry_price + risk_dist if is_buy else entry_price - risk_dist
-        tp2_price = entry_price + 2 * risk_dist if is_buy else entry_price - 2 * risk_dist
-        vol_per = round(volume_total / 2, 2)
+        vol_per = volume_total
 
         now = datetime.utcnow()
         cur = self._conn.execute("""
@@ -252,49 +250,41 @@ class OrderPackManager:
                 source_timeframe, created_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         """, (fractal_id, self.symbol, direction, entry_price, sl_price,
-              tp1_price, tp2_price, volume_total, vol_per,
+              0.0, 0.0, volume_total, vol_per,
               "active", timeframe, now.isoformat()))
         self._conn.commit()
         pack_id = cur.lastrowid
 
         pack = OrderPack(id=pack_id, fractal_id=fractal_id, symbol=self.symbol,
                          direction=direction, entry_price=entry_price,
-                         sl_initial=sl_price, tp1=tp1_price, tp2=tp2_price,
+                         sl_initial=sl_price, tp1=0.0, tp2=0.0,
                          volume_total=volume_total,
                          volume_per=vol_per, status="active", created_at=now,
                          source_timeframe=timeframe)
         self._packs[pack_id] = pack
 
-        tickets = []
-        tp_targets = [tp1_price, tp2_price]
-        for i in range(2):
-            ticket = self._place_limit_order(
-                direction, vol_per, entry_price, sl_price, tp_targets[i],
-                f"F{fractal_id}P{i+1}"
-            )
-            tickets.append(ticket or 0)
+        ticket = self._place_limit_order(
+            direction, vol_per, entry_price, sl_price, 0.0,
+            f"F{fractal_id}P1"
+        )
 
-        # Write signals BEFORE sub_orders commit so CopyTrader gets them
-        for i in range(2):
-            self._write_signal("PLACE_LIMIT", pack_id, i + 1,
-                               direction=direction, volume=vol_per,
-                               price=entry_price, sl=sl_price, tp=tp_targets[i])
+        self._write_signal("PLACE_LIMIT", pack_id, 1,
+                           direction=direction, volume=vol_per,
+                           price=entry_price, sl=sl_price, tp=0.0)
 
-        subs = []
-        for i in range(2):
-            sub = SubOrder(pack_id=pack_id, position_number=i + 1,
-                          ticket=tickets[i], direction=direction,
-                          symbol=self.symbol, volume=vol_per,
-                          entry_price=entry_price, sl_initial=sl_price,
-                          tp_target=tp_targets[i], sl_current=sl_price)
-            self._conn.execute("""
-                INSERT INTO sub_orders (pack_id, position_number, ticket,
-                    direction, symbol, volume, entry_price, sl_initial,
-                    tp_target, sl_current)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-            """, (pack_id, i + 1, tickets[i], direction, self.symbol, vol_per,
-                  entry_price, sl_price, tp_targets[i], sl_price))
-            subs.append(sub)
+        sub = SubOrder(pack_id=pack_id, position_number=1,
+                      ticket=ticket or 0, direction=direction,
+                      symbol=self.symbol, volume=vol_per,
+                      entry_price=entry_price, sl_initial=sl_price,
+                      tp_target=0.0, sl_current=sl_price)
+        self._conn.execute("""
+            INSERT INTO sub_orders (pack_id, position_number, ticket,
+                direction, symbol, volume, entry_price, sl_initial,
+                tp_target, sl_current)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, (pack_id, 1, ticket or 0, direction, self.symbol, vol_per,
+              entry_price, sl_price, 0.0, sl_price))
+        subs = [sub]
 
         # Retry commit up to 3 times to handle concurrent access
         for attempt in range(3):
@@ -307,16 +297,14 @@ class OrderPackManager:
                     time.sleep(0.2 * (attempt + 1))
                 else:
                     logger.error(f"[{self.symbol}] Commit falló tras 3 intentos: {e}")
-                    # Cancel MT5 orders to avoid orphans
-                    for t in tickets:
-                        if t:
-                            mt5.order_delete(t)
+                    if ticket:
+                        mt5.order_delete(ticket)
                     return None
 
         self._subs[pack_id] = subs
 
         logger.info(f"[{self.symbol}] Pack #{pack_id} {direction} @ {entry_price:.2f} "
-                     f"SL={sl_price:.2f} | 1:1={tp1_price:.2f} 1:2={tp2_price:.2f}")
+                     f"SL={sl_price:.2f}")
 
         return pack
 
@@ -449,7 +437,7 @@ class OrderPackManager:
             prev_peak = self._peak_prices.get(sub.ticket, current_price)
             peak_price = max(current_price, prev_peak) if is_buy else min(current_price, prev_peak)
             self._peak_prices[sub.ticket] = peak_price
-            be_price = pack.entry_price + (400 * self.pip) if is_buy else pack.entry_price - (400 * self.pip)
+            be_price = pack.entry_price + (180 * self.pip) if is_buy else pack.entry_price - (180 * self.pip)
             reached = (is_buy and peak_price >= be_price) or \
                       (not is_buy and peak_price <= be_price)
             if reached:
