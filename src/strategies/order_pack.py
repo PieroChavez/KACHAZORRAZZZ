@@ -137,7 +137,7 @@ class OrderPackManager:
                           breakeven_activated=bool(r[11]) if len(r) > 11 else False,
                           trailing_activated=bool(r[12]) if len(r) > 12 else False,
                           source_timeframe=r[13] if len(r) > 13 else "",
-                          created_at=datetime.fromisoformat(r[14]) if len(r) > 14 and r[14] else None)
+                           created_at=self._parse_datetime(r[14]) if len(r) > 14 else None)
             self._packs[p.id] = p
             sub_rows = self._conn.execute(
                 "SELECT * FROM sub_orders WHERE pack_id=?", (p.id,)
@@ -149,7 +149,7 @@ class OrderPackManager:
                                volume=s[6], entry_price=s[7],
                                sl_initial=s[8], tp_target=s[9], sl_current=s[10],
                                status=s[11], profit=s[12],
-                               closed_at=datetime.fromisoformat(s[13]) if s[13] else None)
+                               closed_at=self._parse_datetime(s[13]))
                 subs.append(sub)
             self._subs[p.id] = subs
 
@@ -212,6 +212,19 @@ class OrderPackManager:
             logger.info(f"[{self.symbol}] LIMIT {direction} {volume}@{price_adj} SL={sl_adj} → ticket={result.order}")
             return result.order
         logger.error(f"[{self.symbol}] LIMIT {direction} failed: {result.retcode if result else 'no result'} {result.comment if result else ''}")
+        return None
+
+    @staticmethod
+    def _parse_datetime(val):
+        if val is None:
+            return None
+        if isinstance(val, datetime):
+            return val
+        if isinstance(val, str):
+            try:
+                return datetime.fromisoformat(val)
+            except ValueError:
+                return None
         return None
 
     def place_pack(self, fractal_id: int, direction: str, entry_price: float,
@@ -365,8 +378,8 @@ class OrderPackManager:
                                f"pos ticket={p.ticket}, sin TP")
                     break
 
-    def manage_all(self, current_time: datetime, df_3m):
-        atr_val = atr(df_3m, 14).iloc[-1] if df_3m is not None and len(df_3m) > 14 else 0
+    def manage_all(self, current_time: datetime, df_5m):
+        atr_val = atr(df_5m, 14).iloc[-1] if df_5m is not None and len(df_5m) > 14 else 0
         self._sync_pending_fills()
         for pack_id, pack in list(self._packs.items()):
             if pack.status != "active":
@@ -377,7 +390,7 @@ class OrderPackManager:
             self._check_sl_hit(pack, subs)
             self._check_breakeven(pack, subs)
             if pack.breakeven_activated:
-                self._check_trailing(pack, subs, df_3m, atr_val)
+                self._check_trailing(pack, subs, df_5m, atr_val)
 
     def _get_position(self, ticket: int) -> Optional[dict]:
         if ticket == 0:
@@ -479,8 +492,8 @@ class OrderPackManager:
                 self._write_signal("MODIFY_SLTP", pack.id, sub.position_number,
                                    sl=new_sl)
 
-    def _check_trailing(self, pack: OrderPack, subs: List[SubOrder], df_3m, atr_val):
-        _ = atr_val, df_3m
+    def _check_trailing(self, pack: OrderPack, subs: List[SubOrder], df_5m, atr_val):
+        _ = atr_val, df_5m
         is_buy = pack.direction == "BUY"
         distance = 300 * self.pip
 

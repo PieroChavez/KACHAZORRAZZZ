@@ -21,7 +21,8 @@ if env_file.exists():
 import MetaTrader5 as mt5
 from loguru import logger
 
-SYMBOL = "XAUEURm"
+SYMBOL = "XAUUSDm"
+SYMBOL_MAP = {"XAUUSDm": "XAUUSDc"}
 POLL_INTERVAL = 2
 MAGIC = 20260521
 
@@ -61,6 +62,10 @@ def connect_real() -> bool:
     return True
 
 
+def real_symbol(demo_symbol: str) -> str:
+    return SYMBOL_MAP.get(demo_symbol, demo_symbol)
+
+
 def get_db() -> sqlite3.Connection:
     db_path = _proj_root / "data" / "db" / SYMBOL / "order_packs.db"
     conn = sqlite3.connect(str(db_path))
@@ -93,16 +98,17 @@ def _resolve_position_ticket(pack_id: int, sub_number: int, fallback_ticket: int
     al ticket de la orden pendiente. Buscamos por comentario y magic.
     """
     comment = f"COPY_F{pack_id}P{sub_number}"
+    sym = real_symbol(SYMBOL)
 
     # Buscar en posiciones abiertas
-    positions = mt5.positions_get(group=f"*{SYMBOL}*")
+    positions = mt5.positions_get(group=f"*{sym}*")
     if positions:
         for p in positions:
             if p.magic == MAGIC and comment in (p.comment or ""):
                 return p.ticket
 
     # Buscar en órdenes pendientes
-    orders = mt5.orders_get(symbol=SYMBOL)
+    orders = mt5.orders_get(symbol=sym)
     if orders:
         for o in orders:
             if o.magic == MAGIC and comment in (o.comment or ""):
@@ -112,7 +118,8 @@ def _resolve_position_ticket(pack_id: int, sub_number: int, fallback_ticket: int
 
 
 def execute_place_limit(signal: dict, conn: sqlite3.Connection) -> bool:
-    symbol = signal["symbol"]
+    demo_sym = signal["symbol"]
+    symbol = real_symbol(demo_sym)
     direction = signal["direction"]
     volume = signal["volume"]
     price = signal["price"]

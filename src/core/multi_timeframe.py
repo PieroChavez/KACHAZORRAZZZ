@@ -12,21 +12,22 @@ from src.scoring.candle_closure_ratings import CandleData, CandleRating, rate_ca
 
 
 TIMEFRAME_ORDER = [
-    "3H", "1H",
-    "30min", "3min",
+    "4H", "2H",
+    "30min", "15min", "5min",
 ]
 
 TIMEFRAME_CODES = {
-    "3H": 16387,
-    "1H": 16385,
+    "4H": 16388,
+    "2H": 16386,
     "30min": 30,
-    "3min": 3,
+    "15min": 15,
+    "5min": 5,
 }
 
 TIMEFRAME_GROUPS = {
-    "HTF": ["3H", "1H"],
-    "MID": ["30min"],
-    "LTF": ["3min"],
+    "HTF": ["4H", "2H"],
+    "MID": ["30min", "15min"],
+    "LTF": ["5min"],
 }
 
 HISTORICAL_COUNT = 5000

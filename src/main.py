@@ -356,7 +356,7 @@ class TradingBot:
 
     def _on_new_candle(self, timeframe: str, candle_time: datetime):
         logger.info(f"New {timeframe} candle at {candle_time}")
-        if timeframe == "3min":
+        if timeframe == "5min":
             self._evaluate()
 
     def _auto_train_model(self):
@@ -394,7 +394,7 @@ class TradingBot:
                     continue
 
                 ltf_df = None
-                for tf in ["3min"]:
+                for tf in ["5min"]:
                     df = timeframes.get(tf)
                     if df is not None and len(df) >= 50:
                         ltf_df = df
