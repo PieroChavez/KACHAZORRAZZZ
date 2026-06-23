@@ -1,5 +1,4 @@
 """Neural Network Model - Feedforward MLP with backpropagation (NumPy only)"""
-import json
 import logging
 from pathlib import Path
 from typing import List, Optional
@@ -161,22 +160,26 @@ class NeuralNetwork:
     # --- Persistence ---
 
     def save(self, path: Path):
-        data = {
-            "layers": self.layers,
-            "learning_rate": self.lr,
-            "weights": [w.tolist() for w in self.weights],
-            "biases": [b.tolist() for b in self.biases],
-        }
-        with open(path, "w") as f:
-            json.dump(data, f)
-        logger.info(f"Model saved to {path}")
+        weights_arrays = {f"weight_{i}": w for i, w in enumerate(self.weights)}
+        biases_arrays = {f"bias_{i}": b for i, b in enumerate(self.biases)}
+        metadata = np.array([len(self.layers), *self.layers, self.lr])
+        np.savez_compressed(
+            path,
+            metadata=metadata,
+            **weights_arrays,
+            **biases_arrays,
+        )
+        logger.info(f"Model saved to {path} (npz)")
 
     @classmethod
     def load(cls, path: Path) -> "NeuralNetwork":
-        with open(path) as f:
-            data = json.load(f)
-        nn = cls(data["layers"], data.get("learning_rate", 0.01))
-        nn.weights = [np.array(w) for w in data["weights"]]
-        nn.biases = [np.array(b) for b in data["biases"]]
-        logger.info(f"Model loaded from {path}")
+        data = np.load(path, allow_pickle=True)
+        meta = data["metadata"]
+        layers = [int(x) for x in meta[1:1 + int(meta[0])]]
+        lr = float(meta[-1])
+        nn = cls(layers, lr)
+        nn.weights = [data[f"weight_{i}"] for i in range(len(layers) - 1)]
+        nn.biases = [data[f"bias_{i}"] for i in range(len(layers) - 1)]
+        data.close()
+        logger.info(f"Model loaded from {path} (npz)")
         return nn

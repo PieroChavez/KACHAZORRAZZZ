@@ -1,5 +1,4 @@
 """Training pipeline - loads trade history, trains NN, saves model"""
-import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -14,10 +13,10 @@ logger = logging.getLogger(__name__)
 BASE_MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "models"
 
 
-def _model_paths(symbol: str):
+def _model_path(symbol: str) -> Path:
     model_dir = BASE_MODEL_DIR / symbol
     model_dir.mkdir(parents=True, exist_ok=True)
-    return model_dir / "trade_predictor.json", model_dir / "scaler.json"
+    return model_dir / "trade_predictor.npz"
 
 
 def train(
@@ -72,20 +71,23 @@ def train(
         val_acc = nn.accuracy(y_val, nn.forward(X_val))
         logger.info(f"Validation accuracy: {val_acc:.2%}")
 
-    model_path, scaler_path = _model_paths(symbol)
+    model_path = _model_path(symbol)
     model_path.parent.mkdir(parents=True, exist_ok=True)
     nn.save(model_path)
 
-    scaler = {"mean": mean.tolist(), "std": std.tolist()}
-    with open(scaler_path, "w") as f:
-        json.dump(scaler, f)
-    logger.info(f"Scaler saved to {scaler_path}")
+    with np.load(model_path, allow_pickle=True) as data:
+        arrays = dict(data)
+    arrays["scaler_mean"] = np.array(mean)
+    arrays["scaler_std"] = np.array(std)
+    np.savez_compressed(model_path, **arrays)
+
+    logger.info(f"Model + scaler saved to {model_path}")
 
     return nn
 
 
 def load_model(symbol: str = "") -> Optional[NeuralNetwork]:
-    model_path, _ = _model_paths(symbol)
+    model_path = _model_path(symbol)
     if not model_path.exists():
         logger.warning(f"No trained model found at {model_path}")
         return None
@@ -93,11 +95,17 @@ def load_model(symbol: str = "") -> Optional[NeuralNetwork]:
 
 
 def load_scaler(symbol: str = "") -> Optional[dict]:
-    _, scaler_path = _model_paths(symbol)
-    if not scaler_path.exists():
+    model_path = _model_path(symbol)
+    if not model_path.exists():
         return None
-    with open(scaler_path) as f:
-        return json.load(f)
+    with np.load(model_path, allow_pickle=True) as data:
+        if "scaler_mean" not in data:
+            return None
+        scaler = {
+            "mean": data["scaler_mean"].tolist(),
+            "std": data["scaler_std"].tolist(),
+        }
+    return scaler
 
 
 def get_prediction(features: np.ndarray, symbol: str = "") -> Optional[float]:
