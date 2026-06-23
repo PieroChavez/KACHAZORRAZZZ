@@ -13,7 +13,7 @@ from ..core.multi_timeframe import MultiTimeframeFetcher
 class TimeframeScheduler:
     """Scheduler that triggers evaluation when new candles form"""
 
-    def __init__(self, mt5_fetcher: MultiTimeframeFetcher, symbol: str = "XAUUSDm"):
+    def __init__(self, mt5_fetcher: MultiTimeframeFetcher, symbol: str = "XAUUSDc"):
         self.fetcher = mt5_fetcher
         self.symbol = symbol
         self.running = False

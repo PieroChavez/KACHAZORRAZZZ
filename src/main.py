@@ -90,7 +90,7 @@ class TradingBot:
 
         self.fetcher = MultiTimeframeFetcher(self.mt5)
         str_cfg = self.config["strategy"]
-        self.active_symbols = str_cfg.get("active_symbols", ["XAUUSDm"])
+        self.active_symbols = str_cfg.get("active_symbols", ["XAUUSDc"])
 
         self.symbols = {}
         for sym in self.active_symbols:
@@ -113,7 +113,7 @@ class TradingBot:
 
         self.velocity_detector = MarketVelocityDetector()
 
-        self.copy_trader_process: Optional[subprocess.Popen] = None
+        # self.copy_trader_process: Optional[subprocess.Popen] = None
         self.running = False
         self.start_time = 0.0
         self._last_meta_analysis: Dict[str, float] = {}
@@ -163,7 +163,7 @@ class TradingBot:
 
         self._cleanup_previous_session()
 
-        self._start_copy_trader()
+        # self._start_copy_trader()
 
         for sym in self.active_symbols:
             self.fetcher.init_historical(sym, count=5000)
@@ -299,7 +299,7 @@ class TradingBot:
                     except Exception as e:
                         logger.warning(f"  [{sym}] Error reseteando fractal_state.db: {e}")
 
-    def _start_copy_trader(self):
+    # def _start_copy_trader(self):
         script = Path(__file__).resolve().parent.parent / "scripts" / "copy_trader.py"
         if not script.exists():
             logger.warning(f"copy_trader.py no encontrado en {script}")
@@ -316,7 +316,7 @@ class TradingBot:
 
     def _shutdown(self):
         self.scheduler.stop()
-        self._kill_copy_trader()
+        # self._kill_copy_trader()
         if hasattr(self, 'loop') and not self.loop.is_running():
             self.loop.run_until_complete(self._save_state_periodic())
             for sym in self.active_symbols:
@@ -342,7 +342,7 @@ class TradingBot:
     def _signal_handler(self, signum, frame):
         logger.info(f"Received signal {signum}")
         self.running = False
-        self._kill_copy_trader()
+        # self._kill_copy_trader()
         self.mt5.disconnect()
         logger.info("Bot stopped.")
         sys.exit(0)

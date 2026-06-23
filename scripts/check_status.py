@@ -9,7 +9,7 @@ account = mt5.account_info()
 if account:
     print(f"Account: {account.login} Balance: ${account.balance:.2f} Equity: ${account.equity:.2f}")
 
-for sym in ["XAUUSDm", "XAGUSDm"]:
+for sym in ["XAUUSDc", "XAGUSDm"]:
     positions = mt5.positions_get(symbol=sym)
     if positions:
         for p in positions:

@@ -40,11 +40,11 @@ print(f"\n{'=' * 70}")
 print(f"P&L TOTAL: ${total_pnl:.2f}")
 print(f"{'=' * 70}")
 
-# Deep dive on XAUUSDm
-xau = by_symbol.get("XAUUSDm")
+# Deep dive on XAUUSDc
+xau = by_symbol.get("XAUUSDc")
 if xau:
     print(f"\n{'=' * 70}")
-    print("ANÁLISIS PROFUNDO XAUUSDm")
+    print("ANÁLISIS PROFUNDO XAUUSDc")
     print("=" * 70)
     
     # Separate buy/sell

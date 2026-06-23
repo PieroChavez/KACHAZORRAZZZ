@@ -21,8 +21,8 @@ if env_file.exists():
 import MetaTrader5 as mt5
 from loguru import logger
 
-SYMBOL = "XAUUSDm"
-SYMBOL_MAP = {"XAUUSDm": "XAUUSDc"}
+SYMBOL = "XAUUSDc"
+SYMBOL_MAP = {"XAUUSDc": "XAUUSDc"}
 POLL_INTERVAL = 2
 MAGIC = 20260521
 

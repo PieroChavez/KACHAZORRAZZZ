@@ -23,7 +23,7 @@ from loguru import logger
 
 
 MAGIC_MAP = {
-    20260520: ("SMC Classic", "XAUUSDm — SMC scoring + patterns"),
+    20260520: ("SMC Classic", "XAUUSDc — SMC scoring + patterns"),
     20260521: ("Fractal Cascade", "XAUEURm — CHoCH/BOS + 0.72 fib"),
     20260522: ("Fibonacci Ruiz", "XAUEURm — swing retracement 0.618/0.75 + EMA50"),
 }

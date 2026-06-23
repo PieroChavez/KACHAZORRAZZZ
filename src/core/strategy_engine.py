@@ -1404,7 +1404,7 @@ class StrategyEngine:
             return False
         price = ltf_df["close"].iloc[-1]
         symbol = self.profile.symbol
-        if symbol in ("XAUUSDm", "XAGUSDm"):
+        if symbol in ("XAUUSDc", "XAGUSDm"):
             cents = round((price - int(price)) * 100)
             sentimales = [0, 25, 50, 75]
             distances = [min(abs(cents - s), abs(cents - s + 100), abs(cents - s - 100)) for s in sentimales]

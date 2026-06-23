@@ -47,9 +47,9 @@ print(f"  TOTAL: ${total:+.2f}")
 
 # Show batch fills (same price, same time ≈ batch trigger)
 print(f"\n{'='*75}")
-print("ÓRDENES SIMULTÁNEAS (BATCHES) - XAUUSDm")
+print("ÓRDENES SIMULTÁNEAS (BATCHES) - XAUUSDc")
 print("="*75)
-xau = [d for d in deals if d.symbol == "XAUUSDm" and d.profit != 0]
+xau = [d for d in deals if d.symbol == "XAUUSDc" and d.profit != 0]
 from collections import Counter
 time_groups = Counter()
 for d in xau:

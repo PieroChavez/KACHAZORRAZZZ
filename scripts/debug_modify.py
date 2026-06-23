@@ -2,12 +2,12 @@ import MetaTrader5 as mt5
 import time
 
 mt5.initialize()
-tick = mt5.symbol_info_tick('XAUUSDm')
+tick = mt5.symbol_info_tick('XAUUSDc')
 print(f'Bid: {tick.bid}, Ask: {tick.ask}, Spread: {tick.ask-tick.bid:.2f}')
-si = mt5.symbol_info('XAUUSDm')
+si = mt5.symbol_info('XAUUSDc')
 print(f'Digits: {si.digits}, Point: {si.point}, StopsLevel: {si.trade_stops_level}, FreezeLevel: {si.trade_freeze_level}')
 
-ps = mt5.positions_get(symbol='XAUUSDm') or []
+ps = mt5.positions_get(symbol='XAUUSDc') or []
 for p in ps:
     ptype = 'SELL' if p.type == 1 else 'BUY'
     print(f'Position: type={ptype} entry={p.price_open} sl={p.sl} tp={p.tp} cur={p.price_current}')
@@ -21,7 +21,7 @@ for p in ps:
         req = {
             'action': 6,
             'position': p.ticket,
-            'symbol': 'XAUUSDm',
+            'symbol': 'XAUUSDc',
             'sl': sl_val,
             'tp': tp_val
         }
@@ -36,7 +36,7 @@ for p in ps:
         req = {
             'action': 6,
             'position': p.ticket,
-            'symbol': 'XAUUSDm',
+            'symbol': 'XAUUSDc',
             'sl': sl_val,
             'tp': tp_val
         }

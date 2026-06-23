@@ -81,28 +81,28 @@ for log_file in sorted(logs_dir.glob("trading_bot_*.log")):
                 trades.append(("INVALIDADA", line))
 
 # Procesar señales por activo
-signals = {"XAUUSDm": {"SELL": 0, "BUY": 0}, "XAGUSDm": {"SELL": 0, "BUY": 0}}
-orders_placed = {"XAUUSDm": 0, "XAGUSDm": 0}
-orders_cancelled = {"XAUUSDm": 0, "XAGUSDm": 0}
+signals = {"XAUUSDc": {"SELL": 0, "BUY": 0}, "XAGUSDm": {"SELL": 0, "BUY": 0}}
+orders_placed = {"XAUUSDc": 0, "XAGUSDm": 0}
+orders_cancelled = {"XAUUSDc": 0, "XAGUSDm": 0}
 
 for ttype, line in trades:
     if ttype == "SEÑAL":
-        for sym in ["XAUUSDm", "XAGUSDm"]:
+        for sym in ["XAUUSDc", "XAGUSDm"]:
             if f"[{sym}]" in line:
                 if "BUY" in line:
                     signals[sym]["BUY"] += 1
                 elif "SELL" in line:
                     signals[sym]["SELL"] += 1
     elif ttype == "PENDIENTE":
-        for sym in ["XAUUSDm", "XAGUSDm"]:
+        for sym in ["XAUUSDc", "XAGUSDm"]:
             if sym in line:
                 orders_placed[sym] += 1
     elif ttype == "CANCELADA":
-        for sym in ["XAUUSDm", "XAGUSDm"]:
+        for sym in ["XAUUSDc", "XAGUSDm"]:
             if sym in line:
                 orders_cancelled[sym] += 1
 
-for sym in ["XAUUSDm", "XAGUSDm"]:
+for sym in ["XAUUSDc", "XAGUSDm"]:
     print(f"\n--- {sym} ---")
     print(f"  Señales generadas: {signals[sym]['SELL']} SELL / {signals[sym]['BUY']} BUY")
     print(f"  Órdenes LIMIT colocadas: {orders_placed[sym]}")

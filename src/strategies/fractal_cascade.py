@@ -35,7 +35,7 @@ class FractalCascadeStrategy:
         self.fetcher = fetcher
         self.pip = pip_size(symbol)
         self.db = FractalDB(symbol)
-        self.orders = OrderPackManager(mt5_client, symbol)
+        self.orders = OrderPackManager(mt5_client, symbol, copy_enabled=False)
         self.learner = FractalLearner(symbol)
         self.session_profiler = SessionProfiler()
         self._prev_swings: Dict[str, dict] = {}
@@ -409,7 +409,7 @@ class FractalCascadeStrategy:
 
     def _calc_volume(self, f: Fractal,
                      session: Optional[TradingSession] = None) -> float:
-        return 0.08
+        return 0.04
 
     @staticmethod
     def _session_vol_adj(session: TradingSession) -> float:

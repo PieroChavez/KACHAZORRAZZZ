@@ -1,7 +1,7 @@
 {
   "mode": "DEMO",
-  "active_symbols": ["XAUUSDm"],
-  "inactive_symbols": ["XAUEURm", "NAS100", "XAGUSDm"],
+  "active_symbols": ["XAUUSDc"],
+  "inactive_symbols": ["XAUUSDm", "XAUEURm", "NAS100", "XAGUSDm"],
   "loop_sleep_seconds": 5,
   "min_score_to_trade": 50.0,
   "high_confidence_score": 90.0,
@@ -23,8 +23,8 @@
   },
 
   "symbols": {
-    "XAUUSDm": {
-      "symbol": "XAUUSDm",
+    "XAUUSDc": {
+      "symbol": "XAUUSDc",
       "htf_context": "M15",
       "htf_secondary": "M5",
       "ltf_trigger": "M1",

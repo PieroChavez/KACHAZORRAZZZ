@@ -194,7 +194,7 @@ def main():
             i += 1
 
     if not symbols:
-        symbols = ["XAUUSDm", "XAUEURm"]
+        symbols = ["XAUUSDc", "XAUEURm"]
 
     login, password, server = load_credentials()
     if not all([login, password, server]):
