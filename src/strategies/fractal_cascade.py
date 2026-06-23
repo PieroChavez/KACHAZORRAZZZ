@@ -411,18 +411,6 @@ class FractalCascadeStrategy:
                      session: Optional[TradingSession] = None) -> float:
         return 0.04
 
-    @staticmethod
-    def _session_vol_adj(session: TradingSession) -> float:
-        return {
-            TradingSession.ASIAN: 0.7,
-            TradingSession.LONDON_OPEN: 1.0,
-            TradingSession.LONDON_MID: 0.85,
-            TradingSession.NY_OPEN: 1.2,
-            TradingSession.LONDON_NY_OVERLAP: 1.3,
-            TradingSession.NY_AFTERNOON: 0.9,
-            TradingSession.CLOSE: 0.4,
-        }.get(session, 1.0)
-
     # ── Lifecycle Cleanup ─────────────────────────────────────────────
 
     def _cleanse_fractals(self):
