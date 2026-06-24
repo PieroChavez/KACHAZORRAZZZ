@@ -15,8 +15,11 @@ from ..core.multi_timeframe import (
     MultiTimeframeFetcher, TIMEFRAME_ORDER, TIMEFRAME_GROUPS, HISTORICAL_COUNT
 )
 from ..core.session_profiler import SessionProfiler, TradingSession
+from ..core.regime_detector import RegimeDetector
 from ..utils.helpers import pip_size, atr, find_swing_points
 from ..adapters.mt5_client import MT5Client
+from ..neural.integrator import NeuralAdvisor
+from ..learning.meta_learner import MetaLearner, TradeRecord
 from .fractal_db import FractalDB, Fractal
 from .order_pack import OrderPackManager
 from .fractal_learner import FractalLearner
@@ -29,7 +32,8 @@ MACRO_TFS = ["4H", "2H", "30min", "15min"]
 
 class FractalCascadeStrategy:
     def __init__(self, symbol: str, mt5_client: MT5Client,
-                 fetcher: MultiTimeframeFetcher):
+                 fetcher: MultiTimeframeFetcher,
+                 meta_learner: Optional[MetaLearner] = None):
         self.symbol = symbol
         self.mt5 = mt5_client
         self.fetcher = fetcher
@@ -37,11 +41,17 @@ class FractalCascadeStrategy:
         self.db = FractalDB(symbol)
         self.orders = OrderPackManager(mt5_client, symbol, copy_enabled=False)
         self.learner = FractalLearner(symbol)
+        self.meta_learner = meta_learner
+        self.neural_advisor = NeuralAdvisor()
+        self.regime_detector = RegimeDetector()
         self.session_profiler = SessionProfiler()
         self._prev_swings: Dict[str, dict] = {}
-        self._alerts: Dict[int, datetime] = {}       # fractal_id → alert_time
+        self._alerts: Dict[int, datetime] = {}
         self._last_analysis: Optional[datetime] = None
         self._last_scanned_candle: Dict[str, pd.Timestamp] = {}
+        self._pack_contexts: Dict[int, dict] = {}
+        self._current_regime = None
+        self._current_session = None
 
     # ── Main Entry ─────────────────────────────────────────────────────
 
@@ -54,6 +64,17 @@ class FractalCascadeStrategy:
 
         df_5m = timeframes.get("5min")
         self.orders.manage_all(current_time, df_5m)
+
+        htf_df = timeframes.get("4H")
+        if htf_df is None:
+            htf_df = df_5m
+        ltf_df = df_5m
+        if ltf_df is None:
+            ltf_df = htf_df
+        regime_ctx = self.regime_detector.detect(htf_df, ltf_df)
+        session_ctx = self.session_profiler.get_session()
+        self._current_regime = regime_ctx
+        self._current_session = session_ctx
 
         if skip_entries:
             return
@@ -273,7 +294,7 @@ class FractalCascadeStrategy:
                     self._execute_entry(f, price, df_5m)
 
     def _execute_entry(self, f: Fractal, price: float, df_5m: pd.DataFrame):
-        session = self.session_profiler.get_session()
+        session = self._current_session or self.session_profiler.get_session()
         vol_total = self._calc_volume(f, session)
         direction = "BUY" if f.direction == "bullish" else "SELL"
         try:
@@ -291,6 +312,16 @@ class FractalCascadeStrategy:
                     pack.tp1, vol_total, range_size,
                     f.fib_072, sess_name
                 )
+                regime = self._current_regime
+                self._pack_contexts[pack.id] = {
+                    "direction": direction,
+                    "entry_price": pack.entry_price,
+                    "volume": vol_total,
+                    "session": sess_name,
+                    "regime": regime.regime.value if regime else "NEUTRAL",
+                    "regime_confidence": regime.confidence if regime else 0.5,
+                    "entry_time": datetime.utcnow(),
+                }
         except Exception:
             logger.exception(f"[{self.symbol}] Error al ejecutar entrada fractal #{f.id}, invalidando")
             self.db.invalidate(f.id)
@@ -407,9 +438,38 @@ class FractalCascadeStrategy:
                 break
         self.learner.record_exit(pack_id, outcome, exit_price, profit)
 
+        if self.meta_learner is None:
+            return
+        ctx = self._pack_contexts.pop(pack_id, {})
+        if not ctx:
+            return
+        duration = 0.0
+        entry_time = ctx.get("entry_time")
+        if entry_time:
+            duration = (datetime.utcnow() - entry_time).total_seconds() / 60.0
+        trade = TradeRecord(
+            symbol=self.symbol,
+            direction=ctx.get("direction", pack.direction),
+            entry_price=ctx.get("entry_price", pack.entry_price),
+            exit_price=exit_price,
+            volume=ctx.get("volume", pack.volume_total),
+            profit=profit,
+            score=50.0,
+            conviction=0.5,
+            regime=ctx.get("regime", "NEUTRAL"),
+            session=ctx.get("session", ""),
+            primary_pattern="FRACTAL",
+            patterns_found=["FRACTAL"],
+            regime_confidence=ctx.get("regime_confidence", 0.5),
+            exit_reason=outcome,
+            duration_minutes=int(duration),
+            timestamp=datetime.utcnow(),
+        )
+        self.meta_learner.record_trade(trade)
+
     def _calc_volume(self, f: Fractal,
                      session: Optional[TradingSession] = None) -> float:
-        return 0.04
+        return 0.1
 
     # ── Lifecycle Cleanup ─────────────────────────────────────────────
 

@@ -1,6 +1,5 @@
-"""Session Performance Report
-Shows how the market moved per session (Asia/London/NY) and how the
-strategy performed in each. Includes ML recommendations for next sessions.
+"""Session Performance Report — market movement + trade performance per session
+Integrated into the bot (runs every 4h) and usable as standalone script.
 
 Usage:
     python scripts/session_report.py [--html] [--days 1]
@@ -9,20 +8,17 @@ import sys
 import os
 import json
 import argparse
+import sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from collections import defaultdict
 
 _proj_root = Path(__file__).resolve().parent.parent
 if str(_proj_root) not in sys.path:
     sys.path.insert(0, str(_proj_root))
 
-import MetaTrader5 as mt5
-import pandas as pd
 from loguru import logger
-
 from src.core.session_profiler import SessionProfiler, TradingSession
-from src.strategies.fractal_learner import FractalLearner
-from src.strategies.fractal_db import FractalDB
 
 SESSION_LABELS = {
     TradingSession.ASIAN: "Asia",
@@ -45,42 +41,40 @@ SESSION_ORDER = [
 ]
 
 
-def load_credentials():
-    config_dir = _proj_root / "config"
-    with open(config_dir / "broker.json") as f:
-        broker = json.load(f)["mt5"]
-    login = os.environ.get("MT5_LOGIN") or broker.get("login")
-    password = os.environ.get("MT5_PASSWORD") or broker.get("password")
-    server = os.environ.get("MT5_SERVER") or broker.get("server")
-    return login, password, server
+def now_utc():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def get_session_for_dt(dt: datetime) -> TradingSession:
-    profiler = SessionProfiler()
-    return profiler.get_session(dt.replace(tzinfo=None))
+    return SessionProfiler().get_session(dt.replace(tzinfo=None))
 
 
-def fetch_market_movement(symbol: str, since: datetime) -> dict:
-    rates = mt5.copy_rates_range(symbol, mt5.TIMEFRAME_H1, since, datetime.now())
+def fetch_market_movement(symbol: str, since: datetime, mt5_client=None) -> dict:
+    if mt5_client is None:
+        import MetaTrader5 as mt5
+        rates = mt5.copy_rates_range(symbol, mt5.TIMEFRAME_H1, since, datetime.now())
+    else:
+        rates = mt5_client.copy_rates_range(symbol, mt5.TIMEFRAME_H1, since, datetime.now())
     if rates is None or len(rates) == 0:
         return {}
+    import pandas as pd
     df = pd.DataFrame(rates)
     df["time"] = pd.to_datetime(df["time"], unit="s")
     df.set_index("time", inplace=True)
 
     sessions = {}
     for idx, row in df.iterrows():
-        sess = get_session_for_dt(idx)
+        sess = get_session_for_dt(idx.to_pydatetime())
         label = SESSION_LABELS.get(sess, sess.value)
         if label not in sessions:
-            sessions[label] = {"open": row["open"], "high": row["high"],
-                               "low": row["low"], "close": row["close"],
-                               "count": 1, "direction": ""}
+            sessions[label] = {"open": float(row["open"]), "high": float(row["high"]),
+                               "low": float(row["low"]), "close": float(row["close"]),
+                               "count": 1}
         else:
             s = sessions[label]
-            s["high"] = max(s["high"], row["high"])
-            s["low"] = min(s["low"], row["low"])
-            s["close"] = row["close"]
+            s["high"] = max(s["high"], float(row["high"]))
+            s["low"] = min(s["low"], float(row["low"]))
+            s["close"] = float(row["close"])
             s["count"] += 1
 
     for label, s in sessions.items():
@@ -90,20 +84,97 @@ def fetch_market_movement(symbol: str, since: datetime) -> dict:
     return sessions
 
 
-def now_utc():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+def load_trade_stats(symbol: str, db_path: Path) -> list:
+    """Read trade performance per session from meta_learning.db"""
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute("""
+            SELECT session,
+                   COUNT(*) as total,
+                   SUM(CASE WHEN profit > 0 THEN 1 ELSE 0 END) as wins,
+                   SUM(CASE WHEN profit <= 0 THEN 1 ELSE 0 END) as losses,
+                   SUM(profit) as total_profit,
+                   AVG(volume) as avg_volume,
+                   AVG(duration_minutes) as avg_duration
+            FROM trade_records
+            WHERE profit IS NOT NULL AND profit != 0 AND symbol=?
+            GROUP BY session
+            ORDER BY total_profit DESC
+        """, (symbol,)).fetchall()
+        return [
+            {
+                "session": r[0] or "SIN_SESION",
+                "total": r[1], "wins": r[2] or 0, "losses": r[3] or 0,
+                "total_profit": r[4] or 0.0, "avg_volume": r[5] or 0.0,
+                "avg_duration": r[6] or 0.0,
+                "win_rate": (r[2] or 0) / r[1] * 100 if r[1] > 0 else 0.0,
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
 
 
-def report_text(symbol: str, days: int):
+def load_global_stats(symbol: str, db_path: Path) -> dict:
+    if not db_path.exists():
+        return {"total_trades": 0, "closed_trades": 0, "win_rate": 0.0, "total_profit": 0.0}
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute("""
+            SELECT COUNT(*),
+                   SUM(CASE WHEN profit > 0 THEN 1 ELSE 0 END),
+                   SUM(profit)
+            FROM trade_records
+            WHERE profit IS NOT NULL AND profit != 0 AND symbol=?
+        """, (symbol,)).fetchone()
+        total, wins, profit = row
+        wins = wins or 0
+        profit = profit or 0.0
+        return {
+            "total_trades": total,
+            "closed_trades": total,
+            "win_rate": wins / total if total > 0 else 0.0,
+            "total_profit": profit,
+        }
+    finally:
+        conn.close()
+
+
+def generate_report_data(symbol: str, days: int = 1, mt5_client=None) -> dict:
     since = now_utc() - timedelta(days=days)
-    learner = FractalLearner(symbol)
+    db_path = _proj_root / "data" / "db" / symbol / "meta_learning.db"
+
+    market = {}
+    try:
+        market = fetch_market_movement(symbol, since, mt5_client)
+    except Exception as e:
+        logger.warning(f"No se pudo obtener datos de mercado: {e}")
+
+    trades = load_trade_stats(symbol, db_path)
+    global_stats = load_global_stats(symbol, db_path)
+
+    return {
+        "symbol": symbol,
+        "period_days": days,
+        "period_start": since.isoformat(),
+        "period_end": now_utc().isoformat(),
+        "market": market,
+        "trades_by_session": trades,
+        "global_stats": global_stats,
+    }
+
+
+def report_text(symbol: str, days: int = 1, mt5_client=None):
+    data = generate_report_data(symbol, days, mt5_client)
 
     print(f"\n{'='*70}")
-    print(f"  INFORME DE SESION - {symbol}")
-    print(f"  Periodo: ultimos {days} dia(s) - {since.strftime('%Y-%m-%d')} -> {now_utc().strftime('%Y-%m-%d %H:%M')} UTC")
+    print(f"  INFORME DE SESION - {data['symbol']}")
+    print(f"  Periodo: ultimos {data['period_days']} dia(s) - {data['period_start'][:10]} -> {data['period_end'][:16]} UTC")
     print(f"{'='*70}")
 
-    market = fetch_market_movement(symbol, since)
+    market = data["market"]
     if market:
         print(f"\n  -- MOVIMIENTO DEL MERCADO --")
         print(f"  {'Session':<18} {'Apertura':<12} {'Maximo':<12} {'Minimo':<12} {'Cierre':<12} {'Rango':<10} {'Dir':<10}")
@@ -114,112 +185,60 @@ def report_text(symbol: str, days: int):
             if s:
                 print(f"  {label:<18} {s['open']:<12.2f} {s['high']:<12.2f} {s['low']:<12.2f} {s['close']:<12.2f} {s['range']:<10.2f} {s['direction']:<10}")
     else:
-        print("\n  No hay datos de mercado disponibles.")
+        print("\n  (Sin datos de mercado)")
 
+    trades = data["trades_by_session"]
     print(f"\n  -- RENDIMIENTO POR SESION --")
-    rows = learner._conn.execute("""
-        SELECT session,
-               COUNT(*) as total,
-               SUM(CASE WHEN outcome='win' THEN 1 ELSE 0 END) as wins,
-               SUM(CASE WHEN outcome='loss' THEN 1 ELSE 0 END) as losses,
-               SUM(profit) as total_profit,
-               SUM(volume) as total_volume,
-               AVG(duration_hours) as avg_dur
-        FROM fractal_trades
-        WHERE outcome != 'open' AND symbol=?
-        GROUP BY session
-        ORDER BY total_profit DESC
-    """, (symbol,)).fetchall()
-
-    if rows:
-        print(f"  {'Session':<18} {'Trades':>7} {'Ganadas':>8} {'Perdidas':>9} {'Win%':>7} {'Profit':>10} {'Vol':>7} {'Dur(h)':>8}")
-        print(f"  {'-'*76}")
-        for r in rows:
-            session, total, wins, losses, total_profit, total_volume, avg_dur = r
-            wins = wins or 0
-            losses = losses or 0
-            total_profit = total_profit or 0.0
-            total_volume = total_volume or 0.0
-            win_rate = wins / total * 100 if total > 0 else 0.0
-            label = session if session else "SIN_SESION"
-            print(f"  {label:<18} {total:>7} {wins:>8} {losses:>9} {win_rate:>6.1f}% {total_profit:>+10.2f} {total_volume:>7.2f} {avg_dur:>7.1f}h")
+    if trades:
+        print(f"  {'Session':<18} {'Trades':>7} {'Ganadas':>8} {'Perdidas':>9} {'Win%':>7} {'Profit':>10} {'Vol':>7}")
+        print(f"  {'-'*68}")
+        for t in trades:
+            wr = t["win_rate"]
+            print(f"  {t['session']:<18} {t['total']:>7} {t['wins']:>8} {t['losses']:>9} {wr:>6.1f}% {t['total_profit']:>+10.2f} {t['avg_volume']:>7.2f}")
     else:
         print("  No hay trades cerrados en este periodo.")
 
-    print(f"\n  -- ESTADO DEL APRENDIZAJE --")
-    summary = learner.get_summary()
-    print(f"  Trades registrados:  {summary['total_trades']} ({summary['closed_trades']} cerrados)")
-    print(f"  Win rate global:     {summary['win_rate']:.1%}")
-    print(f"  Profit total:        ${summary['total_profit']:+.2f}")
-    if summary['volume_multipliers']:
-        print(f"  Multiplicadores activos:")
-        for k, v in sorted(summary['volume_multipliers'].items()):
-            print(f"    {k}: {v}x")
+    gs = data["global_stats"]
+    print(f"\n  -- TOTALES --")
+    print(f"  Trades: {gs['total_trades']} | Win Rate: {gs['win_rate']:.1%} | Profit: ${gs['total_profit']:+.2f}")
 
-    print(f"\n  -- RECOMENDACIONES PARA PROXIMAS SESIONES --")
-    hourly_adjustments = {
-        TradingSession.ASIAN: ("bajo", "Reducir volumen (x0.7). Esperar setups de alta probabilidad solamente."),
-        TradingSession.LONDON_OPEN: ("medio-alto", "Volumen normal (x1.0). Activar alertas de proximidad."),
-        TradingSession.LONDON_MID: ("medio", "Reducir ligeramente (x0.85). Buscar continuaciones."),
-        TradingSession.NY_OPEN: ("alto", "Aumentar volumen (x1.2). Alta volatilidad al inicio."),
-        TradingSession.LONDON_NY_OVERLAP: ("muy alto", "Maximo volumen (x1.3). Mayor oportunidad de movimientos fuertes."),
-        TradingSession.NY_AFTERNOON: ("medio-bajo", "Volumen normal-bajo (x0.9). Reduccion de liquidez."),
-        TradingSession.CLOSE: ("muy bajo", "Volumen minimo (x0.4). Evitar nuevas entradas."),
-    }
-    now = now_utc()
-    current_session = get_session_for_dt(now)
-    for sess in SESSION_ORDER:
-        label = SESSION_LABELS.get(sess, sess.value)
-        level, advice = hourly_adjustments[sess]
-        now_marker = " << ACTUAL" if sess == current_session else ""
-        print(f"  {label:<18} volatilidad {level:<12} - {advice}{now_marker}")
+    if trades:
+        best = max(trades, key=lambda t: t["win_rate"])
+        worst = min(trades, key=lambda t: t["win_rate"])
+        print(f"\n  -- MEJOR SESION --")
+        print(f"  {best['session']}: {best['win_rate']:.1f}% WR, ${best['total_profit']:+.2f} profit ({best['total']} trades)")
+        print(f"\n  -- PEOR SESION --")
+        print(f"  {worst['session']}: {worst['win_rate']:.1f}% WR, ${worst['total_profit']:+.2f} profit ({worst['total']} trades)")
 
-    print(f"\n{'='*70}")
-    print(f"  Proximo analisis ML: cada 4h el sistema ajusta multiplicadores automaticamente")
-    print(f"{'='*70}\n")
-
-    learner.close()
+    print(f"\n{'='*70}\n")
 
 
-def report_html(symbol: str, days: int):
-    since = now_utc() - timedelta(days=days)
-    learner = FractalLearner(symbol)
-    summary = learner.get_summary()
-
-    market = fetch_market_movement(symbol, since)
-
-    rows = learner._conn.execute("""
-        SELECT session,
-               COUNT(*) as total,
-               SUM(CASE WHEN outcome='win' THEN 1 ELSE 0 END) as wins,
-               SUM(CASE WHEN outcome='loss' THEN 1 ELSE 0 END) as losses,
-               SUM(profit) as total_profit,
-               SUM(volume) as total_volume,
-               AVG(duration_hours) as avg_dur
-        FROM fractal_trades
-        WHERE outcome != 'open' AND symbol=?
-        GROUP BY session
-        ORDER BY total_profit DESC
-    """, (symbol,)).fetchall()
+def report_html(symbol: str, days: int = 1, mt5_client=None) -> Path:
+    data = generate_report_data(symbol, days, mt5_client)
 
     mkt_rows = ""
     for sess in SESSION_ORDER:
         label = SESSION_LABELS.get(sess, sess.value)
-        s = market.get(label) if market else None
+        s = data["market"].get(label) if data["market"] else None
         if s:
             cls = "green" if s["direction"] == "ALCISTA" else ("red" if s["direction"] == "BAJISTA" else "")
             mkt_rows += f"<tr><td>{label}</td><td class='{cls}'>{s['open']:.2f}</td><td>{s['high']:.2f}</td><td>{s['low']:.2f}</td><td class='{cls}'>{s['close']:.2f}</td><td>{s['range']:.2f}</td></tr>"
 
     trade_rows = ""
-    for r in rows:
-        session, total, wins, losses, tp, tv, dur = r
-        wins = wins or 0
-        losses = losses or 0
-        tp = tp or 0.0
-        tv = tv or 0.0
-        wr = wins / total * 100 if total > 0 else 0.0
-        color = "green" if tp >= 0 else "red"
-        trade_rows += f"<tr><td>{session or '&mdash;'}</td><td>{total}</td><td>{wins}</td><td>{losses}</td><td>{wr:.1f}%</td><td style='color:{color}'>{tp:+.2f}</td><td>{tv:.2f}</td></tr>"
+    for t in data["trades_by_session"]:
+        color = "green" if t["total_profit"] >= 0 else "red"
+        trade_rows += f"<tr><td>{t['session']}</td><td>{t['total']}</td><td>{t['wins']}</td><td>{t['losses']}</td><td>{t['win_rate']:.1f}%</td><td style='color:{color}'>{t['total_profit']:+.2f}</td><td>{t['avg_volume']:.2f}</td></tr>"
+
+    if data["trades_by_session"]:
+        best = max(data["trades_by_session"], key=lambda t: t["win_rate"])
+        worst = min(data["trades_by_session"], key=lambda t: t["win_rate"])
+        best_sec = f"<p><strong>Mejor:</strong> {best['session']} ({best['win_rate']:.1f}% WR, ${best['total_profit']:+.2f})</p>"
+        worst_sec = f"<p><strong>Peor:</strong> {worst['session']} ({worst['win_rate']:.1f}% WR, ${worst['total_profit']:+.2f})</p>"
+    else:
+        best_sec = worst_sec = ""
+
+    gs = data["global_stats"]
+    profit_color = "green" if gs["total_profit"] >= 0 else "red"
 
     html = f"""<!DOCTYPE html>
 <html lang="es">
@@ -243,17 +262,16 @@ def report_html(symbol: str, days: int):
   .stat .label {{ font-size:.8rem; color:#8b949e; }}
   .rec {{ margin-top:1.5rem; background:#161b22; border:1px solid #30363d; border-radius:8px; padding:1rem; }}
   .rec h3 {{ color:#f59e0b; margin-bottom:.5rem; }}
-  .rec p {{ color:#c9d1d9; }}
 </style>
 </head>
 <body>
 <h1>Informe de Sesion - {symbol}</h1>
-<div class='meta'>Periodo: ultimos {days} dia(s) - {since.strftime('%Y-%m-%d')} -> {now_utc().strftime('%Y-%m-%d %H:%M')} UTC</div>
+<div class='meta'>Periodo: ultimos {data['period_days']} dia(s) - {data['period_start'][:10]} -> {data['period_end'][:16]} UTC</div>
 
 <div class='stats'>
-  <div class='stat'><div class='num'>{summary['closed_trades']}</div><div class='label'>Trades</div></div>
-  <div class='stat'><div class='num'>{summary['win_rate']:.0%}</div><div class='label'>Win Rate</div></div>
-  <div class='stat'><div class='num' style='color:{"#3fb950" if summary["total_profit"]>=0 else "#f85149"}'>{summary['total_profit']:+.2f}</div><div class='label'>Profit</div></div>
+  <div class='stat'><div class='num'>{gs['closed_trades']}</div><div class='label'>Trades</div></div>
+  <div class='stat'><div class='num'>{gs['win_rate']:.0%}</div><div class='label'>Win Rate</div></div>
+  <div class='stat'><div class='num' style='color:{profit_color}'>{gs['total_profit']:+.2f}</div><div class='label'>Profit</div></div>
 </div>
 
 <h2>Movimiento del Mercado</h2>
@@ -262,14 +280,14 @@ def report_html(symbol: str, days: int):
 </tbody></table>
 
 <h2>Rendimiento por Sesion</h2>
-<table><thead><tr><th>Session</th><th>Trades</th><th>Ganadas</th><th>Perdidas</th><th>Win%</th><th>Profit</th><th>Vol</th></tr></thead><tbody>
+<table><thead><tr><th>Session</th><th>Trades</th><th>Ganadas</th><th>Perdidas</th><th>Win%</th><th>Profit</th><th>Vol Prom</th></tr></thead><tbody>
 {trade_rows if trade_rows else '<tr><td colspan="7">Sin trades cerrados</td></tr>'}
 </tbody></table>
 
 <div class='rec'>
-<h3>Recomendaciones del Aprendiz</h3>
-<p>Multiplicadores de volumen activos: {json.dumps(summary['volume_multipliers'])}</p>
-<p>Proximo analisis automatico: cada 4h.</p>
+<h3>Evaluacion por Sesion</h3>
+{best_sec}{worst_sec}
+<p>Proximo reporte: en 4h.</p>
 </div>
 </body></html>"""
 
@@ -277,34 +295,20 @@ def report_html(symbol: str, days: int):
     report_dir.mkdir(exist_ok=True)
     path = report_dir / f"session_report_{symbol}_{now_utc().strftime('%Y%m%d_%H%M')}.html"
     path.write_text(html, encoding="utf-8")
-    print(f"\nReporte HTML: file:///{path.as_posix()}")
-    learner.close()
+    logger.info(f"Reporte de sesion generado: {path}")
     return path
 
 
 def main():
     parser = argparse.ArgumentParser(description="Session Performance Report")
-    parser.add_argument("--symbol", default="XAUEURm", help="Simbolo")
+    parser.add_argument("--symbol", default="XAUUSDc", help="Simbolo")
     parser.add_argument("--days", type=int, default=1, help="Dias a analizar")
     parser.add_argument("--html", action="store_true", help="Generar HTML")
     args = parser.parse_args()
 
-    login, password, server = load_credentials()
-    if not mt5.initialize(login=int(login), password=password, server=server):
-        print(f"Error conectando a MT5: {mt5.last_error()}")
-        return
-
-    acc = mt5.account_info()
-    if acc:
-        print(f"Conectado a MT5 - {server} | Balance: ${acc.balance:.2f}")
-    else:
-        print(f"Conectado a MT5 - {server}")
-
     report_text(args.symbol, args.days)
     if args.html:
         report_html(args.symbol, args.days)
-
-    mt5.shutdown()
 
 
 if __name__ == "__main__":

@@ -356,7 +356,7 @@ class TradingBot:
 
     def _on_new_candle(self, timeframe: str, candle_time: datetime):
         logger.info(f"New {timeframe} candle at {candle_time}")
-        if timeframe == "5min":
+        if timeframe == "2min":
             self._evaluate()
 
     def _auto_train_model(self):

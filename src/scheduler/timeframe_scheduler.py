@@ -23,6 +23,7 @@ class TimeframeScheduler:
 
         self._intervals = {
             "1min": 60,
+            "2min": 2 * 60,
             "3min": 3 * 60,
             "5min": 5 * 60,
             "1H": 3600,
@@ -62,6 +63,7 @@ class TimeframeScheduler:
         """Main scheduler loop"""
         last_candle_times = {
             "1min": None,
+            "2min": None,
             "3min": None,
             "5min": None,
             "1H": None,
