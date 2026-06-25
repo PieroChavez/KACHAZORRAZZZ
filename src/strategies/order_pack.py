@@ -370,6 +370,33 @@ class OrderPackManager:
                                f"pos ticket={p.ticket}, sin TP")
                     break
 
+    def sync_manually_closed(self):
+        """Marca como cerradas manualmente posiciones que ya no existen en MT5."""
+        for pack_id, pack in list(self._packs.items()):
+            if pack.status != "active":
+                continue
+            subs = self._subs.get(pack_id, [])
+            changed = False
+            for sub in subs:
+                if sub.status != "active" or sub.ticket == 0:
+                    continue
+                pos = self._get_position(sub.ticket)
+                if pos is None:
+                    sub.status = "closed_manual"
+                    sub.closed_at = datetime.utcnow()
+                    self._update_sub_status(sub)
+                    self._peak_prices.pop(sub.ticket, None)
+                    changed = True
+                    logger.info(f"[{self.symbol}] Pack #{pack_id} sub #{sub.position_number} "
+                                f"ticket={sub.ticket} cerrada manualmente")
+            if changed:
+                all_closed = all(s.status != "active" for s in subs)
+                if all_closed:
+                    pack.status = "closed"
+                    self._update_pack_status(pack)
+                    self._closed_pack_ids.append(pack.id)
+                    logger.info(f"[{self.symbol}] Pack #{pack.id} fully closed (manual)")
+
     def manage_all(self, current_time: datetime, df_5m):
         with self._db_lock:
             atr_val = atr(df_5m, 14).iloc[-1] if df_5m is not None and len(df_5m) > 14 else 0
@@ -597,3 +624,91 @@ class OrderPackManager:
                           "status": s.status, "sl": s.sl_current} for s in subs]
             })
         return result
+
+
+class TrailingGuard:
+    """Universal trailing stop / breakeven para TODAS las posiciones (bot + manuales).
+
+    - No pelea contra cambios manuales de SL.
+    - Solo mueve el SL en dirección favorable (nunca lo empeora).
+    - Estado en memoria (se pierde al reiniciar el bot, pero se reconstruye).
+    """
+
+    BE_DISTANCE_PIPS = 180
+    BE_BUFFER_PIPS = 30
+    TRAIL_DISTANCE_PIPS = 300
+    MANUAL_SL_PIPS = 1000
+
+    def __init__(self, mt5_client: MT5Client):
+        self.mt5_client = mt5_client
+        self._state: Dict[int, dict] = {}  # ticket -> {peak, be_active, last_sl}
+
+    def run(self):
+        """Ejecutar en cada ciclo del bot. Procesa todas las posiciones abiertas."""
+        positions = self.mt5_client.get_positions()
+        if not positions:
+            return
+
+        logger.info(f"[TrailingGuard] Escaneando {len(positions)} posiciones...")
+
+        for pos in positions:
+            ticket = pos["ticket"]
+            is_buy = pos["type"] == "buy"
+            current_price = pos["price_current"]
+            entry = pos["price_open"]
+            current_sl = pos.get("sl", 0) or 0
+            profit = pos.get("profit", 0)
+            sym = pos["symbol"]
+            pip = pip_size(sym)
+
+            if current_sl == 0:
+                init_sl = entry - self.MANUAL_SL_PIPS * pip if is_buy else entry + self.MANUAL_SL_PIPS * pip
+                ok = self.mt5_client.modify_position(ticket, init_sl, 0.0)
+                if ok:
+                    current_sl = init_sl
+                    logger.info(f"[TrailingGuard] ★ SL INICIAL MANUAL {sym} #{ticket} → {init_sl:.2f} ({self.MANUAL_SL_PIPS}pips)")
+                else:
+                    logger.warning(f"[TrailingGuard] #{ticket} no se pudo asignar SL inicial — saltando")
+                    continue
+
+            if ticket not in self._state:
+                self._state[ticket] = {
+                    "peak": current_price,
+                    "be_active": False,
+                    "last_sl": current_sl,
+                }
+
+            st = self._state[ticket]
+
+            if current_sl != st["last_sl"]:
+                logger.info(f"[TrailingGuard] #{ticket} SL cambiado manualmente ({st['last_sl']}→{current_sl}) — respetando")
+                st["last_sl"] = current_sl
+
+            st["peak"] = max(st["peak"], current_price) if is_buy else min(st["peak"], current_price)
+
+            if not st["be_active"]:
+                be_target = entry + self.BE_DISTANCE_PIPS * pip if is_buy else entry - self.BE_DISTANCE_PIPS * pip
+                reached = (is_buy and st["peak"] >= be_target) or (not is_buy and st["peak"] <= be_target)
+                if reached:
+                    be_sl = entry + self.BE_BUFFER_PIPS * pip if is_buy else entry - self.BE_BUFFER_PIPS * pip
+                    better = (is_buy and be_sl > current_sl) or (not is_buy and be_sl < current_sl)
+                    if better:
+                        ok = self.mt5_client.modify_position(ticket, be_sl, 0.0)
+                        if ok:
+                            st["be_active"] = True
+                            st["last_sl"] = be_sl
+                            logger.info(f"[TrailingGuard] ★ BREAKEVEN {sym} #{ticket} SL→{be_sl:.2f}")
+                    else:
+                        logger.info(f"[TrailingGuard] #{ticket} BE listo pero SL actual ({current_sl}) ya es mejor que {be_sl}")
+
+            if st["be_active"]:
+                trail_sl = current_price - self.TRAIL_DISTANCE_PIPS * pip if is_buy else current_price + self.TRAIL_DISTANCE_PIPS * pip
+                better = (is_buy and trail_sl > current_sl) or (not is_buy and trail_sl < current_sl)
+                if better:
+                    ok = self.mt5_client.modify_position(ticket, trail_sl, 0.0)
+                    if ok:
+                        st["last_sl"] = trail_sl
+                        logger.info(f"[TrailingGuard] ★ TRAIL {sym} #{ticket} SL→{trail_sl:.2f}")
+                else:
+                    diff_pips = abs(current_price - current_sl) / pip
+                    logger.info(f"[TrailingGuard] #{ticket} trailing ok, SL a {diff_pips:.0f} pips, esperando mejora")

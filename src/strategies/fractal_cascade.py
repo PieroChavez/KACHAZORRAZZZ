@@ -56,6 +56,7 @@ class FractalCascadeStrategy:
     # ── Main Entry ─────────────────────────────────────────────────────
 
     def manage_orders(self):
+        self.orders.sync_manually_closed()
         self.orders.manage_all(datetime.utcnow(), None)
         for pid in self.orders.pop_closed_pack_ids():
             self._record_pack_outcome(pid)

@@ -228,6 +228,7 @@ class MT5Client:
                     "profit": pos.profit,
                     "sl": pos.sl,
                     "tp": pos.tp,
+                    "magic": pos.magic,
                     "time": pd.Timestamp.fromtimestamp(pos.time, tz='UTC'),
                 })
 
