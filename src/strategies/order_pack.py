@@ -1,6 +1,7 @@
 """Single Order Pack Manager — 1 position per fractal entry
 Manages entry, SL, TP1/TP2, breakeven +10, and dynamic trailing for runner.
 """
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, List, Dict
@@ -69,6 +70,8 @@ class OrderPackManager:
         self._packs: Dict[int, OrderPack] = {}
         self._subs: Dict[int, List[SubOrder]] = {}
         self._peak_prices: Dict[int, float] = {}
+        self._closed_pack_ids: List[int] = []
+        self._db_lock = threading.Lock()
         self._load_active()
         self._init_peaks()
 
@@ -230,78 +233,79 @@ class OrderPackManager:
     def place_pack(self, fractal_id: int, direction: str, entry_price: float,
                    sl_price: float, timeframe: str,
                    volume_total: float = 0.03) -> Optional[OrderPack]:
-        for p in self._packs.values():
-            if p.fractal_id == fractal_id and p.status == "active":
-                logger.warning(f"[{self.symbol}] Pack ya activo para fractal #{fractal_id}, saltando")
+        with self._db_lock:
+            for p in self._packs.values():
+                if p.fractal_id == fractal_id and p.status == "active":
+                    logger.warning(f"[{self.symbol}] Pack ya activo para fractal #{fractal_id}, saltando")
+                    return None
+            direction = direction.upper()
+            is_buy = direction == "BUY"
+            risk_dist = abs(entry_price - sl_price)
+            if risk_dist == 0:
+                logger.error(f"[{self.symbol}] Risk distance zero, cannot place pack")
                 return None
-        direction = direction.upper()
-        is_buy = direction == "BUY"
-        risk_dist = abs(entry_price - sl_price)
-        if risk_dist == 0:
-            logger.error(f"[{self.symbol}] Risk distance zero, cannot place pack")
-            return None
 
-        vol_per = volume_total
+            vol_per = volume_total
 
-        now = datetime.utcnow()
-        cur = self._conn.execute("""
-            INSERT INTO order_packs (fractal_id, symbol, direction, entry_price,
-                sl_initial, tp1, tp2, volume_total, volume_per, status,
-                source_timeframe, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (fractal_id, self.symbol, direction, entry_price, sl_price,
-              0.0, 0.0, volume_total, vol_per,
-              "active", timeframe, now.isoformat()))
-        self._conn.commit()
-        pack_id = cur.lastrowid
+            now = datetime.utcnow()
+            cur = self._conn.execute("""
+                INSERT INTO order_packs (fractal_id, symbol, direction, entry_price,
+                    sl_initial, tp1, tp2, volume_total, volume_per, status,
+                    source_timeframe, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (fractal_id, self.symbol, direction, entry_price, sl_price,
+                  0.0, 0.0, volume_total, vol_per,
+                  "active", timeframe, now.isoformat()))
+            self._conn.commit()
+            pack_id = cur.lastrowid
 
-        pack = OrderPack(id=pack_id, fractal_id=fractal_id, symbol=self.symbol,
-                         direction=direction, entry_price=entry_price,
-                         sl_initial=sl_price, tp1=0.0, tp2=0.0,
-                         volume_total=volume_total,
-                         volume_per=vol_per, status="active", created_at=now,
-                         source_timeframe=timeframe)
-        self._packs[pack_id] = pack
+            pack = OrderPack(id=pack_id, fractal_id=fractal_id, symbol=self.symbol,
+                             direction=direction, entry_price=entry_price,
+                             sl_initial=sl_price, tp1=0.0, tp2=0.0,
+                             volume_total=volume_total,
+                             volume_per=vol_per, status="active", created_at=now,
+                             source_timeframe=timeframe)
+            self._packs[pack_id] = pack
 
         ticket = self._place_limit_order(
             direction, vol_per, entry_price, sl_price, 0.0,
             f"F{fractal_id}P1"
         )
 
-        self._write_signal("PLACE_LIMIT", pack_id, 1,
-                           direction=direction, volume=vol_per,
-                           price=entry_price, sl=sl_price, tp=0.0)
+        with self._db_lock:
+            self._write_signal("PLACE_LIMIT", pack_id, 1,
+                               direction=direction, volume=vol_per,
+                               price=entry_price, sl=sl_price, tp=0.0)
 
-        sub = SubOrder(pack_id=pack_id, position_number=1,
-                      ticket=ticket or 0, direction=direction,
-                      symbol=self.symbol, volume=vol_per,
-                      entry_price=entry_price, sl_initial=sl_price,
-                      tp_target=0.0, sl_current=sl_price)
-        self._conn.execute("""
-            INSERT INTO sub_orders (pack_id, position_number, ticket,
-                direction, symbol, volume, entry_price, sl_initial,
-                tp_target, sl_current)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
-        """, (pack_id, 1, ticket or 0, direction, self.symbol, vol_per,
-              entry_price, sl_price, 0.0, sl_price))
-        subs = [sub]
+            sub = SubOrder(pack_id=pack_id, position_number=1,
+                          ticket=ticket or 0, direction=direction,
+                          symbol=self.symbol, volume=vol_per,
+                          entry_price=entry_price, sl_initial=sl_price,
+                          tp_target=0.0, sl_current=sl_price)
+            self._conn.execute("""
+                INSERT INTO sub_orders (pack_id, position_number, ticket,
+                    direction, symbol, volume, entry_price, sl_initial,
+                    tp_target, sl_current)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+            """, (pack_id, 1, ticket or 0, direction, self.symbol, vol_per,
+                  entry_price, sl_price, 0.0, sl_price))
+            subs = [sub]
 
-        # Retry commit up to 3 times to handle concurrent access
-        for attempt in range(3):
-            try:
-                self._conn.commit()
-                break
-            except Exception as e:
-                if attempt < 2:
-                    import time
-                    time.sleep(0.2 * (attempt + 1))
-                else:
-                    logger.error(f"[{self.symbol}] Commit falló tras 3 intentos: {e}")
-                    if ticket:
-                        mt5.order_delete(ticket)
-                    return None
+            for attempt in range(3):
+                try:
+                    self._conn.commit()
+                    break
+                except Exception as e:
+                    if attempt < 2:
+                        import time
+                        time.sleep(0.2 * (attempt + 1))
+                    else:
+                        logger.error(f"[{self.symbol}] Commit falló tras 3 intentos: {e}")
+                        if ticket:
+                            mt5.order_delete(ticket)
+                        return None
 
-        self._subs[pack_id] = subs
+            self._subs[pack_id] = subs
 
         logger.info(f"[{self.symbol}] Pack #{pack_id} {direction} @ {entry_price:.2f} "
                      f"SL={sl_price:.2f}")
@@ -367,18 +371,19 @@ class OrderPackManager:
                     break
 
     def manage_all(self, current_time: datetime, df_5m):
-        atr_val = atr(df_5m, 14).iloc[-1] if df_5m is not None and len(df_5m) > 14 else 0
-        self._sync_pending_fills()
-        for pack_id, pack in list(self._packs.items()):
-            if pack.status != "active":
-                continue
-            subs = self._subs.get(pack_id, [])
-            if not subs:
-                continue
-            self._check_sl_hit(pack, subs)
-            self._check_breakeven(pack, subs)
-            if pack.breakeven_activated:
-                self._check_trailing(pack, subs, df_5m, atr_val)
+        with self._db_lock:
+            atr_val = atr(df_5m, 14).iloc[-1] if df_5m is not None and len(df_5m) > 14 else 0
+            self._sync_pending_fills()
+            for pack_id, pack in list(self._packs.items()):
+                if pack.status != "active":
+                    continue
+                subs = self._subs.get(pack_id, [])
+                if not subs:
+                    continue
+                self._check_sl_hit(pack, subs)
+                self._check_breakeven(pack, subs)
+                if pack.breakeven_activated:
+                    self._check_trailing(pack, subs, df_5m, atr_val)
 
     def _get_position(self, ticket: int) -> Optional[dict]:
         if ticket == 0:
@@ -421,6 +426,7 @@ class OrderPackManager:
         if all_closed:
             pack.status = "closed"
             self._update_pack_status(pack)
+            self._closed_pack_ids.append(pack.id)
             logger.info(f"[{self.symbol}] Pack #{pack.id} fully closed")
 
     def _check_breakeven(self, pack: OrderPack, subs: List[SubOrder]):
@@ -566,6 +572,12 @@ class OrderPackManager:
                 self._update_sub_status(sub)
         pack.status = "closed"
         self._update_pack_status(pack)
+        self._closed_pack_ids.append(pack.id)
+
+    def pop_closed_pack_ids(self) -> List[int]:
+        ids = list(self._closed_pack_ids)
+        self._closed_pack_ids.clear()
+        return ids
 
     def get_pack_summary(self) -> List[dict]:
         result = []

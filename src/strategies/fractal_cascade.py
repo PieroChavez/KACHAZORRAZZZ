@@ -57,13 +57,16 @@ class FractalCascadeStrategy:
 
     def manage_orders(self):
         self.orders.manage_all(datetime.utcnow(), None)
+        for pid in self.orders.pop_closed_pack_ids():
+            self._record_pack_outcome(pid)
 
     def evaluate(self, timeframes: Dict[str, pd.DataFrame], current_time: datetime,
                  skip_entries: bool = False):
-        before_packs = {p.id for p in self.orders.get_active_packs()}
 
         df_5m = timeframes.get("5min")
         self.orders.manage_all(current_time, df_5m)
+        for pid in self.orders.pop_closed_pack_ids():
+            self._record_pack_outcome(pid)
 
         htf_df = timeframes.get("4H")
         if htf_df is None:
@@ -83,10 +86,6 @@ class FractalCascadeStrategy:
         self._scan_subfractals_5m(timeframes.get("5min"))
         self._check_entry_conditions(timeframes, current_time)
         self._cleanse_fractals()
-
-        after_packs = {p.id for p in self.orders.get_active_packs()}
-        for pid in before_packs - after_packs:
-            self._record_pack_outcome(pid)
 
         analysis_interval = timedelta(hours=4)
         if (self._last_analysis is None

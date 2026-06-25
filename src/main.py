@@ -120,6 +120,8 @@ class TradingBot:
         self._meta_analysis_interval = 14400  # cada 4 horas
         self._last_account_log: float = 0.0
         self._account_log_interval = 300  # cada 5 minutos
+        self._last_cleanup: float = 0.0
+        self._cleanup_interval = 14400  # cada 4 horas
 
     async def _initialize_state(self):
         for sym in self.active_symbols:
@@ -200,6 +202,10 @@ class TradingBot:
                 if now - self._last_account_log > self._account_log_interval:
                     self._last_account_log = now
                     self._log_account_status()
+
+                if now - self._last_cleanup > self._cleanup_interval:
+                    self._last_cleanup = now
+                    self._run_cleanup()
 
                 for sym in self.active_symbols:
                     last_time = self._last_meta_analysis.get(sym, 0)
@@ -323,6 +329,28 @@ class TradingBot:
                 self.loop.run_until_complete(self.state_persistence[sym].close())
         self.mt5.disconnect()
         logger.info("Bot stopped.")
+
+    @staticmethod
+    def _run_cleanup():
+        import shutil
+        root = Path(__file__).resolve().parent.parent
+
+        for d in root.rglob("__pycache__"):
+            if d.is_dir():
+                shutil.rmtree(d, ignore_errors=True)
+
+        p = root / ".pytest_cache"
+        if p.exists():
+            shutil.rmtree(p, ignore_errors=True)
+
+        cutoff = time.time() - 3 * 86400
+        logs_dir = root / "logs"
+        if logs_dir.exists():
+            for f in logs_dir.iterdir():
+                if f.is_file() and f.stat().st_mtime < cutoff:
+                    f.unlink()
+
+        logger.info("Cleanup automático completado")
 
     def _kill_copy_trader(self):
         if self.copy_trader_process and self.copy_trader_process.poll() is None:
