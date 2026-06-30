@@ -27,6 +27,7 @@ from src.learning.meta_learner import MetaLearner
 from src.scheduler.timeframe_scheduler import TimeframeScheduler
 from src.strategies.fractal_cascade import FractalCascadeStrategy
 from src.strategies.order_pack import TrailingGuard
+from src.remote.telegram_commander import TelegramCommander
 import pandas as pd
 
 
@@ -116,6 +117,10 @@ class TradingBot:
 
         self.trailing_guard = TrailingGuard(self.mt5)
 
+        tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "")
+        self.telegram = TelegramCommander(self, tg_token, int(tg_chat) if tg_chat else None)
+
         # self.copy_trader_process: Optional[subprocess.Popen] = None
         self.running = False
         self.start_time = 0.0
@@ -187,6 +192,7 @@ class TradingBot:
         self.scheduler.add_callback(self._on_new_candle)
         self.scheduler.start()
         self._evaluate()
+        self.telegram.start()
 
         logger.info("Bot running. Press Ctrl+C to stop.")
 

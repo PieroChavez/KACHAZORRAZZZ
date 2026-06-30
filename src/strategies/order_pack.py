@@ -233,8 +233,13 @@ class OrderPackManager:
     def place_pack(self, fractal_id: int, direction: str, entry_price: float,
                    sl_price: float, timeframe: str,
                    volume_total: float = 0.03) -> Optional[OrderPack]:
+        threshold = 3 * self.pip
         with self._db_lock:
             for p in self._packs.values():
+                if p.status == "active" and p.direction == direction.upper() and abs(p.entry_price - entry_price) <= threshold:
+                    logger.warning(f"[{self.symbol}] Pack #{p.id} ya activo en {p.entry_price:.2f} "
+                                   f"(diff={abs(p.entry_price - entry_price):.5f}), saltando")
+                    return None
                 if p.fractal_id == fractal_id and p.status == "active":
                     logger.warning(f"[{self.symbol}] Pack ya activo para fractal #{fractal_id}, saltando")
                     return None
@@ -399,7 +404,6 @@ class OrderPackManager:
 
     def manage_all(self, current_time: datetime, df_5m):
         with self._db_lock:
-            atr_val = atr(df_5m, 14).iloc[-1] if df_5m is not None and len(df_5m) > 14 else 0
             self._sync_pending_fills()
             for pack_id, pack in list(self._packs.items()):
                 if pack.status != "active":
@@ -408,9 +412,6 @@ class OrderPackManager:
                 if not subs:
                     continue
                 self._check_sl_hit(pack, subs)
-                self._check_breakeven(pack, subs)
-                if pack.breakeven_activated:
-                    self._check_trailing(pack, subs, df_5m, atr_val)
 
     def _get_position(self, ticket: int) -> Optional[dict]:
         if ticket == 0:
@@ -634,9 +635,9 @@ class TrailingGuard:
     - Estado en memoria (se pierde al reiniciar el bot, pero se reconstruye).
     """
 
-    BE_DISTANCE_PIPS = 180
+    BE_DISTANCE_PIPS = 115
     BE_BUFFER_PIPS = 30
-    TRAIL_DISTANCE_PIPS = 300
+    TRAIL_DISTANCE_PIPS = 120
     MANUAL_SL_PIPS = 1000
 
     def __init__(self, mt5_client: MT5Client):

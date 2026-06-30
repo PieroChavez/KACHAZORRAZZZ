@@ -297,6 +297,16 @@ class FractalCascadeStrategy:
         session = self._current_session or self.session_profiler.get_session()
         vol_total = self._calc_volume(f, session)
         direction = "BUY" if f.direction == "bullish" else "SELL"
+
+        entry_price = f.fib_072
+        threshold = 3 * self.pip
+        for active in self.orders.get_active_packs():
+            if active.direction == direction and abs(active.entry_price - entry_price) <= threshold:
+                logger.info(f"[{self.symbol}] Entry omitido: pack #{active.id} {direction} ya activo "
+                            f"en {active.entry_price:.2f} (diff={abs(active.entry_price - entry_price):.2f})")
+                self.db.invalidate(f.id)
+                return
+
         try:
             pack = self.orders.place_pack(
                 f.id, direction, f.fib_072, f.level1, f.timeframe, vol_total
