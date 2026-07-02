@@ -457,93 +457,6 @@ class OrderPackManager:
             self._closed_pack_ids.append(pack.id)
             logger.info(f"[{self.symbol}] Pack #{pack.id} fully closed")
 
-    def _check_breakeven(self, pack: OrderPack, subs: List[SubOrder]):
-        if pack.breakeven_activated:
-            return
-        for sub in subs:
-            if sub.status != "active" or sub.ticket == 0:
-                continue
-            pos = self._get_position(sub.ticket)
-            if pos is None:
-                continue
-            current_price = pos["price_current"]
-            is_buy = pack.direction == "BUY"
-            prev_peak = self._peak_prices.get(sub.ticket, current_price)
-            peak_price = max(current_price, prev_peak) if is_buy else min(current_price, prev_peak)
-            self._peak_prices[sub.ticket] = peak_price
-            be_price = pack.entry_price + (180 * self.pip) if is_buy else pack.entry_price - (180 * self.pip)
-            reached = (is_buy and peak_price >= be_price) or \
-                      (not is_buy and peak_price <= be_price)
-            if reached:
-                self._apply_breakeven(pack, subs)
-                break
-
-    def _apply_breakeven(self, pack: OrderPack, subs: List[SubOrder]):
-        is_buy = pack.direction == "BUY"
-        distance = 300 * self.pip
-
-        current_price = None
-        for sub in subs:
-            if sub.status == "active" and sub.ticket != 0:
-                pos = self._get_position(sub.ticket)
-                if pos:
-                    current_price = pos["price_current"]
-                    break
-        if current_price is None:
-            return
-
-        new_sl = current_price - distance if is_buy else current_price + distance
-
-        for sub in subs:
-            if sub.status != "active" or sub.ticket == 0:
-                continue
-            if sub.ticket:
-                self.mt5_client.modify_position(sub.ticket, new_sl, 0.0)
-                sub.sl_current = new_sl
-                self._update_sub_sl(sub)
-
-        pack.breakeven_activated = True
-        self._conn.execute(
-            "UPDATE order_packs SET breakeven_activated=1 WHERE id=?", (pack.id,)
-        )
-        self._conn.commit()
-        logger.info(f"[{self.symbol}] Pack #{pack.id} breakeven activado → SL={new_sl:.2f} (trailing {distance:.2f} pts detrás)")
-
-        for sub in subs:
-            if sub.status == "active" and sub.ticket != 0:
-                self._write_signal("MODIFY_SLTP", pack.id, sub.position_number,
-                                   sl=new_sl)
-
-    def _check_trailing(self, pack: OrderPack, subs: List[SubOrder], df_5m, atr_val):
-        _ = atr_val, df_5m
-        is_buy = pack.direction == "BUY"
-        distance = 300 * self.pip
-
-        for sub in subs:
-            if sub.status != "active" or sub.ticket == 0:
-                continue
-            pos = self._get_position(sub.ticket)
-            if pos is None:
-                continue
-
-            current_price = pos["price_current"]
-            new_sl = current_price - distance if is_buy else current_price + distance
-
-            better_sl = (new_sl > sub.sl_current) if is_buy else (new_sl < sub.sl_current)
-            if better_sl:
-                self.mt5_client.modify_position(sub.ticket, new_sl, 0.0)
-                sub.sl_current = new_sl
-                self._update_sub_sl(sub)
-                pack.trailing_activated = True
-                self._write_signal("MODIFY_SLTP", pack.id, sub.position_number,
-                                   sl=new_sl)
-
-        if pack.trailing_activated:
-            self._conn.execute(
-                "UPDATE order_packs SET trailing_activated=1 WHERE id=?", (pack.id,)
-            )
-            self._conn.commit()
-
     def _update_sub_status(self, sub: SubOrder):
         self._conn.execute("""
             UPDATE sub_orders SET status=?, profit=?, closed_at=?
@@ -635,9 +548,9 @@ class TrailingGuard:
     - Estado en memoria (se pierde al reiniciar el bot, pero se reconstruye).
     """
 
-    BE_DISTANCE_PIPS = 115
+    BE_DISTANCE_PIPS = 100
     BE_BUFFER_PIPS = 30
-    TRAIL_DISTANCE_PIPS = 110
+    TRAIL_DISTANCE_PIPS = 30
     MANUAL_SL_PIPS = 1000
 
     def __init__(self, mt5_client: MT5Client):

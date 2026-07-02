@@ -301,6 +301,17 @@ class FractalCascadeStrategy:
         direction = "BUY" if f.direction == "bullish" else "SELL"
 
         entry_price = f.fib_072
+
+        # Revisar MT5 — si ya hay un pending limit en este precio, saltar
+        pending = self.mt5.get_pending_orders(self.symbol)
+        limit_type = 2 if direction == "BUY" else 3  # BUY_LIMIT=2, SELL_LIMIT=3
+        for po in pending:
+            if po["type"] == limit_type and abs(po["price"] - entry_price) <= self.pip:
+                logger.info(f"[{self.symbol}] Entry omitido: pending limit {direction} ya existe "
+                            f"en {po['price']:.2f} (diff={abs(po['price'] - entry_price):.2f})")
+                self.db.invalidate(f.id)
+                return
+
         threshold = 3 * self.pip
         for active in self.orders.get_active_packs():
             if active.direction == direction and abs(active.entry_price - entry_price) <= threshold:
@@ -441,11 +452,8 @@ class FractalCascadeStrategy:
         if not pack or pack.status == "active":
             return
         profit = self.orders.get_pack_total_profit(pack_id)
+        outcome = "win" if profit > 0 else "loss"
 
-        if profit <= 0:
-            return
-
-        outcome = "win"
         subs = self.orders.get_all_subs(pack_id)
         exit_price = 0.0
         for s in subs:

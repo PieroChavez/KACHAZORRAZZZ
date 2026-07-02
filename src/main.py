@@ -239,7 +239,7 @@ class TradingBot:
             self._shutdown()
 
     def _cleanup_previous_session(self):
-        logger.info("LIMPIANDO TODO el terminal (órdenes + posiciones)...")
+        logger.info("LIMPIANDO solo órdenes pendientes (posiciónes abiertas se conservan)...")
 
         orders = mt5.orders_get()
         if orders:
@@ -255,58 +255,6 @@ class TradingBot:
             logger.info(f"Órdenes canceladas: {cancelled}")
         else:
             logger.info("  Sin órdenes pendientes")
-
-        positions = mt5.positions_get()
-        if positions:
-            closed = 0
-            for pos in positions:
-                close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
-                price = mt5.symbol_info_tick(pos.symbol).bid if close_type == mt5.ORDER_TYPE_BUY else mt5.symbol_info_tick(pos.symbol).ask
-                result = mt5.order_send({
-                    "action": mt5.TRADE_ACTION_DEAL,
-                    "symbol": pos.symbol,
-                    "volume": pos.volume,
-                    "type": close_type,
-                    "position": pos.ticket,
-                    "price": price,
-                    "deviation": 20,
-                    "magic": 20230505,
-                    "comment": "Cleanup restart",
-                })
-                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                    closed += 1
-                    logger.info(f"  Cerrada posición {pos.ticket} {pos.symbol} profit={pos.profit:.2f}")
-            logger.info(f"Posiciones cerradas: {closed}")
-        else:
-            logger.info("  Sin posiciones abiertas")
-
-        for sym in self.active_symbols:
-            db_dir = Path(__file__).resolve().parent.parent / "data" / "db" / sym
-            if not db_dir.exists():
-                continue
-            import sqlite3
-            op_db = db_dir / "order_packs.db"
-            if op_db.exists():
-                try:
-                    conn = sqlite3.connect(str(op_db))
-                    conn.execute("UPDATE order_packs SET status='cancelled_restart' WHERE status='active'")
-                    conn.execute("UPDATE sub_orders SET status='cancelled_restart' WHERE status='active'")
-                    conn.execute("UPDATE copy_signals SET executed=-1, error='Bot restarted' WHERE executed=0")
-                    conn.commit()
-                    conn.close()
-                    logger.info(f"  [{sym}] order_packs.db reseteado")
-                except Exception as e:
-                    logger.warning(f"  [{sym}] Error reseteando order_packs.db: {e}")
-            fs_db = db_dir / "fractal_state.db"
-            if fs_db.exists():
-                try:
-                    conn = sqlite3.connect(str(fs_db))
-                    conn.execute("UPDATE fractals SET active=0 WHERE active=1")
-                    conn.commit()
-                    conn.close()
-                    logger.info(f"  [{sym}] fractal_state.db reseteado")
-                except Exception as e:
-                    logger.warning(f"  [{sym}] Error reseteando fractal_state.db: {e}")
 
     # def _start_copy_trader(self):
         script = Path(__file__).resolve().parent.parent / "scripts" / "copy_trader.py"
