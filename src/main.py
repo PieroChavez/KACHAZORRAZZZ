@@ -94,10 +94,17 @@ class TradingBot:
         str_cfg = self.config["strategy"]
         self.active_symbols = str_cfg.get("active_symbols", ["XAUUSDc"])
 
+        self.state_persistence: Dict[str, StatePersistence] = {}
+        self.meta_learner: Dict[str, MetaLearner] = {}
+        for sym in self.active_symbols:
+            self.state_persistence[sym] = StatePersistence(sym)
+            self.meta_learner[sym] = MetaLearner(sym)
+
         self.symbols = {}
         for sym in self.active_symbols:
             sym_cfg = str_cfg.get("symbols", {}).get(sym, {})
-            engine = FractalCascadeStrategy(sym, self.mt5, self.fetcher)
+            engine = FractalCascadeStrategy(sym, self.mt5, self.fetcher,
+                                            meta_learner=self.meta_learner.get(sym))
             self.symbols[sym] = {
                 "engine": engine,
                 "last_trade_time": None,
@@ -106,12 +113,6 @@ class TradingBot:
         self.mt5.connect()
 
         self.scheduler = TimeframeScheduler(self.fetcher, self.active_symbols[0])
-
-        self.state_persistence: Dict[str, StatePersistence] = {}
-        self.meta_learner: Dict[str, MetaLearner] = {}
-        for sym in self.active_symbols:
-            self.state_persistence[sym] = StatePersistence(sym)
-            self.meta_learner[sym] = MetaLearner(sym)
 
         self.velocity_detector = MarketVelocityDetector()
 

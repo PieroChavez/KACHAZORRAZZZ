@@ -42,6 +42,8 @@ class FractalCascadeStrategy:
         self.orders = OrderPackManager(mt5_client, symbol, copy_enabled=False)
         self.learner = FractalLearner(symbol)
         self.meta_learner = meta_learner
+        lot_raw = self.db.get_config("lot_override", "")
+        self._lot_override = float(lot_raw) if lot_raw else None
         self.neural_advisor = NeuralAdvisor()
         self.regime_detector = RegimeDetector()
         self.session_profiler = SessionProfiler()
@@ -439,7 +441,11 @@ class FractalCascadeStrategy:
         if not pack or pack.status == "active":
             return
         profit = self.orders.get_pack_total_profit(pack_id)
-        outcome = "win" if profit > 0 else "loss"
+
+        if profit <= 0:
+            return
+
+        outcome = "win"
         subs = self.orders.get_all_subs(pack_id)
         exit_price = 0.0
         for s in subs:
@@ -479,7 +485,7 @@ class FractalCascadeStrategy:
 
     def _calc_volume(self, f: Fractal,
                      session: Optional[TradingSession] = None) -> float:
-        return 0.1
+        return self._lot_override or 0.1
 
     # ── Lifecycle Cleanup ─────────────────────────────────────────────
 

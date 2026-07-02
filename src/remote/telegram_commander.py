@@ -171,12 +171,17 @@ os.execv(sys.executable, [sys.executable, '-m', 'src.main'] + sys.argv[1:])
     def _cmd_set_lot(self, val: str, chat_id: int):
         try:
             lot = float(val)
+            count = 0
             for sym, sd in getattr(self.bot, "symbols", {}).items():
                 eng = sd.get("engine")
-                if eng and hasattr(eng, "_calc_volume"):
-                    orig = eng._calc_volume
-                    eng._calc_volume = lambda f, s=None, _orig=orig, _lot=lot: _lot
-            self.send_message(f"✅ Lotaje cambiado a {lot}", chat_id)
+                if eng and hasattr(eng, "_lot_override"):
+                    eng._lot_override = lot
+                    eng.db.set_config("lot_override", str(lot))
+                    count += 1
+            if count:
+                self.send_message(f"✅ Lotaje cambiado a {lot} para {count} símbolo(s) (persistente)", chat_id)
+            else:
+                self.send_message(f"⚠️ No se encontraron motores activos", chat_id)
         except ValueError:
             self.send_message(f"❌ Valor inválido: {val}", chat_id)
 

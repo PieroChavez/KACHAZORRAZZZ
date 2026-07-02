@@ -79,6 +79,12 @@ class FractalDB:
                     updated_at TEXT
                 )
             """)
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """)
             try:
                 self._conn.execute("ALTER TABLE fractals ADD COLUMN is_subfractal INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
@@ -182,3 +188,18 @@ class FractalDB:
 
     def clean_inactive(self):
         self._cache = {k: v for k, v in self._cache.items() if v.active}
+
+    def get_config(self, key: str, default: str = "") -> str:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value FROM config WHERE key=?", (key,)
+            ).fetchone()
+            return row[0] if row else default
+
+    def set_config(self, key: str, value: str):
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES (?,?)",
+                (key, value)
+            )
+            self._conn.commit()

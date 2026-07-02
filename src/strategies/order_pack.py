@@ -637,7 +637,7 @@ class TrailingGuard:
 
     BE_DISTANCE_PIPS = 115
     BE_BUFFER_PIPS = 30
-    TRAIL_DISTANCE_PIPS = 120
+    TRAIL_DISTANCE_PIPS = 110
     MANUAL_SL_PIPS = 1000
 
     def __init__(self, mt5_client: MT5Client):
