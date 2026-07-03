@@ -326,6 +326,14 @@ class TradingBot:
         logger.info("Bot stopped.")
         sys.exit(0)
 
+    def _has_open_positions(self) -> bool:
+        try:
+            import MetaTrader5 as mt5
+            positions = mt5.positions_get()
+            return positions is not None and len(positions) > 0
+        except Exception:
+            return False
+
     def _manage_positions(self):
         for sym, sym_data in self.symbols.items():
             try:

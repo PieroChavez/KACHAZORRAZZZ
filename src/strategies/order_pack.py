@@ -157,12 +157,32 @@ class OrderPackManager:
             self._subs[p.id] = subs
 
     def _init_peaks(self):
-        for subs in self._subs.values():
+        for pack_id, subs in list(self._subs.items()):
+            changed = False
             for sub in subs:
                 if sub.status == "active" and sub.ticket != 0:
                     pos = self._get_position(sub.ticket)
                     if pos:
                         self._peak_prices[sub.ticket] = pos["price_current"]
+                    else:
+                        profit = self._get_history_profit(sub.ticket)
+                        if profit is not None:
+                            sub.status = "closed_by_sl"
+                            sub.profit = profit
+                            sub.closed_at = datetime.utcnow()
+                            self._update_sub_status(sub)
+                            changed = True
+                            logger.info(f"[{self.symbol}] Sub #{sub.id} recuperado de MT5 history: "
+                                        f"profit={profit:.2f}")
+            if changed:
+                pack = self._packs.get(pack_id)
+                if pack and pack.status == "active":
+                    all_closed = all(s.status != "active" for s in subs)
+                    if all_closed:
+                        pack.status = "closed"
+                        self._update_pack_status(pack)
+                        self._closed_pack_ids.append(pack.id)
+                        logger.info(f"[{self.symbol}] Pack #{pack.id} fully closed (recuperado)")
 
     def _write_signal(self, action: str, pack_id: int, sub_number: int = 0,
                        symbol: str = "", direction: str = "",
@@ -378,7 +398,7 @@ class OrderPackManager:
                     break
 
     def sync_manually_closed(self):
-        """Marca como cerradas manualmente posiciones que ya no existen en MT5."""
+        """Marca como cerradas posiciones que ya no existen en MT5, con profit real del historial."""
         for pack_id, pack in list(self._packs.items()):
             if pack.status != "active":
                 continue
@@ -389,13 +409,10 @@ class OrderPackManager:
                     continue
                 pos = self._get_position(sub.ticket)
                 if pos is None:
-                    sub.status = "closed_manual"
-                    sub.closed_at = datetime.utcnow()
-                    self._update_sub_status(sub)
-                    self._peak_prices.pop(sub.ticket, None)
+                    self._close_sub(sub, "closed_manual")
                     changed = True
                     logger.info(f"[{self.symbol}] Pack #{pack_id} sub #{sub.position_number} "
-                                f"ticket={sub.ticket} cerrada manualmente")
+                                f"ticket={sub.ticket} cerrada (profit real={sub.profit:.2f})")
             if changed:
                 all_closed = all(s.status != "active" for s in subs)
                 if all_closed:
@@ -434,23 +451,47 @@ class OrderPackManager:
             }
         return None
 
+    def _get_history_profit(self, ticket: int) -> Optional[float]:
+        """Consulta MT5 history deals para obtener el profit real de una posición ya cerrada."""
+        try:
+            deals = mt5.history_deals_get(position=ticket)
+            if deals and len(deals) > 0:
+                total = sum(d.profit for d in deals)
+                return total
+        except Exception as e:
+            logger.warning(f"[{self.symbol}] Error obteniendo history profit #{ticket}: {e}")
+        return None
+
+    def _close_sub(self, sub: SubOrder, status: str):
+        """Cierra una sub_order con profit real desde MT5 history."""
+        profit = self._get_history_profit(sub.ticket)
+        sub.status = status
+        if profit is not None:
+            sub.profit = profit
+        sub.closed_at = datetime.utcnow()
+        self._update_sub_status(sub)
+        self._peak_prices.pop(sub.ticket, None)
+
     def _check_sl_hit(self, pack: OrderPack, subs: List[SubOrder]):
         for sub in subs:
             if sub.status != "active" or sub.ticket == 0:
                 continue
             pos = self._get_position(sub.ticket)
+            is_buy = pack.direction == "BUY"
             if pos is None:
+                sl_hit = self._get_history_profit(sub.ticket) is not None
+                if sl_hit:
+                    logger.info(f"[{self.symbol}] Pack #{pack.id} sub #{sub.position_number} "
+                                f"ticket={sub.ticket} ya no existe en MT5 — cerrando con profit real")
+                    self._close_sub(sub, "closed_by_sl")
                 continue
             current_price = pos["price_current"]
-            is_buy = pack.direction == "BUY"
             sl_hit = (is_buy and current_price <= sub.sl_current) or \
                      (not is_buy and current_price >= sub.sl_current)
             if sl_hit:
-                sub.status = "closed_by_sl"
-                sub.profit = pos.get("profit", 0)
-                sub.closed_at = datetime.utcnow()
-                self._update_sub_status(sub)
-                self._peak_prices.pop(sub.ticket, None)
+                logger.info(f"[{self.symbol}] Pack #{pack.id} sub #{sub.position_number} "
+                            f"ticket={sub.ticket} SL alcanzado → cerrando")
+                self._close_sub(sub, "closed_by_sl")
 
         all_closed = all(s.status != "active" for s in subs)
         if all_closed:
@@ -552,7 +593,7 @@ class TrailingGuard:
 
     BE_DISTANCE_PIPS = 50
     BE_BUFFER_PIPS = 30
-    TRAIL_DISTANCE_PIPS = 20
+    TRAIL_DISTANCE_PIPS = 15
     MANUAL_SL_PIPS = 1000
 
     def __init__(self, mt5_client: MT5Client):

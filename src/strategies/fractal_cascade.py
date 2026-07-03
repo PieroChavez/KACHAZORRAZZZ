@@ -272,15 +272,12 @@ class FractalCascadeStrategy:
                 logger.info(f"[{self.symbol}] {tag} #{f.id} invalidado (entry en lado incorrecto)")
                 continue
 
-            sl_dist = abs(f.fib_072 - f.level1)
-            price_dist = abs(f.fib_072 - price)
-            if price_dist > sl_dist:
+            if self._entry_swept(f, timeframes):
                 self._cancel_pending_for(f)
                 self.db.invalidate(f.id)
                 self._alerts.pop(f.id, None)
                 tag = "SUB" if f.is_subfractal else "MACRO"
-                logger.info(f"[{self.symbol}] {tag} #{f.id} invalidado (limit muy lejos: "
-                           f"price_dist={price_dist:.2f} > sl_dist={sl_dist:.2f})")
+                logger.info(f"[{self.symbol}] {tag} #{f.id} invalidado (entry ya barrido)")
                 continue
 
             if not self._macro_bias_allows(f, df_5m):
@@ -374,6 +371,20 @@ class FractalCascadeStrategy:
         else:
             return price < f.level0 * (1 - buf)
 
+    def _entry_swept(self, f: Fractal, timeframes: Dict[str, pd.DataFrame]) -> bool:
+        df = timeframes.get(f.timeframe)
+        if df is None or len(df) < 5 or f.bos_time is None:
+            return False
+        recent = df[df["time"] >= f.bos_time]
+        if len(recent) < 2:
+            return False
+        is_buy = f.direction == "bullish"
+        entry = f.fib_072
+        if is_buy:
+            return recent["low"].min() <= entry
+        else:
+            return recent["high"].max() >= entry
+
     def _cancel_pending_for(self, f: Fractal):
         active_packs = self.orders.get_active_packs()
         for pack in active_packs:
@@ -463,6 +474,12 @@ class FractalCascadeStrategy:
             if s.closed_at:
                 exit_price = s.sl_current
                 break
+
+        tf = pack.source_timeframe or "?"
+        logger.info(f"[{self.symbol}] ─── TRADE CLOSED #{pack_id} {tf:5s} {pack.direction:5s} "
+                    f"entry={pack.entry_price:.2f} exit={exit_price:.2f} "
+                    f"{'✅ +' if profit > 0 else '❌ '}${profit:.2f} ───")
+
         self.learner.record_exit(pack_id, outcome, exit_price, profit)
 
         if self.meta_learner is None:

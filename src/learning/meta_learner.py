@@ -38,6 +38,7 @@ class TradeRecord:
     exit_reason: str
     duration_minutes: int
     timestamp: datetime
+    source_timeframe: str = ""
 
 
 @dataclass
