@@ -86,7 +86,7 @@ class FractalCascadeStrategy:
             return
 
         self._scan_macro_fractals(timeframes)
-        self._scan_subfractals_5m(timeframes.get("5min"))
+        # self._scan_subfractals_5m(timeframes.get("5min"))  # desactivado: 0.2% win rate
         self._check_entry_conditions(timeframes, current_time)
         self._cleanse_fractals()
 
@@ -300,29 +300,32 @@ class FractalCascadeStrategy:
         vol_total = self._calc_volume(f, session)
         direction = "BUY" if f.direction == "bullish" else "SELL"
 
-        entry_price = f.fib_072
+        # Redondear al tick_size real de MT5 para comparación exacta
+        info = self.mt5.get_symbol_info(self.symbol)
+        tick_size = info.get("trade_tick_size", info.get("point", self.pip)) if info else self.pip
+        entry_price = round(f.fib_072 / tick_size) * tick_size
 
         # Revisar MT5 — si ya hay un pending limit en este precio, saltar
         pending = self.mt5.get_pending_orders(self.symbol)
         limit_type = 2 if direction == "BUY" else 3  # BUY_LIMIT=2, SELL_LIMIT=3
         for po in pending:
-            if po["type"] == limit_type and abs(po["price"] - entry_price) <= self.pip:
+            if po["type"] == limit_type and po["price"] == entry_price:
                 logger.info(f"[{self.symbol}] Entry omitido: pending limit {direction} ya existe "
-                            f"en {po['price']:.2f} (diff={abs(po['price'] - entry_price):.2f})")
+                            f"en {po['price']:.2f}")
                 self.db.invalidate(f.id)
                 return
 
-        threshold = 3 * self.pip
+        # Revisar packs activos — comparar contra entry_price redondeado
         for active in self.orders.get_active_packs():
-            if active.direction == direction and abs(active.entry_price - entry_price) <= threshold:
+            if active.direction == direction and round(active.entry_price / tick_size) * tick_size == entry_price:
                 logger.info(f"[{self.symbol}] Entry omitido: pack #{active.id} {direction} ya activo "
-                            f"en {active.entry_price:.2f} (diff={abs(active.entry_price - entry_price):.2f})")
+                            f"en {active.entry_price:.2f}")
                 self.db.invalidate(f.id)
                 return
 
         try:
             pack = self.orders.place_pack(
-                f.id, direction, f.fib_072, f.level1, f.timeframe, vol_total
+                f.id, direction, entry_price, f.level1, f.timeframe, vol_total
             )
             if pack:
                 self.db.mark_entry_hit(f.id, f.fib_072, f.level1)

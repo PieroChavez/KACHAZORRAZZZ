@@ -233,12 +233,14 @@ class OrderPackManager:
     def place_pack(self, fractal_id: int, direction: str, entry_price: float,
                    sl_price: float, timeframe: str,
                    volume_total: float = 0.03) -> Optional[OrderPack]:
-        threshold = 3 * self.pip
+        info = self.mt5_client.get_symbol_info(self.symbol)
+        tick_size = info.get("trade_tick_size", info.get("point", self.pip)) if info else self.pip
+        entry_rounded = round(entry_price / tick_size) * tick_size
         with self._db_lock:
             for p in self._packs.values():
-                if p.status == "active" and p.direction == direction.upper() and abs(p.entry_price - entry_price) <= threshold:
+                if p.status == "active" and p.direction == direction.upper() and round(p.entry_price / tick_size) * tick_size == entry_rounded:
                     logger.warning(f"[{self.symbol}] Pack #{p.id} ya activo en {p.entry_price:.2f} "
-                                   f"(diff={abs(p.entry_price - entry_price):.5f}), saltando")
+                                   f"(price={entry_rounded:.2f}), saltando")
                     return None
                 if p.fractal_id == fractal_id and p.status == "active":
                     logger.warning(f"[{self.symbol}] Pack ya activo para fractal #{fractal_id}, saltando")
@@ -548,9 +550,9 @@ class TrailingGuard:
     - Estado en memoria (se pierde al reiniciar el bot, pero se reconstruye).
     """
 
-    BE_DISTANCE_PIPS = 100
+    BE_DISTANCE_PIPS = 50
     BE_BUFFER_PIPS = 30
-    TRAIL_DISTANCE_PIPS = 30
+    TRAIL_DISTANCE_PIPS = 20
     MANUAL_SL_PIPS = 1000
 
     def __init__(self, mt5_client: MT5Client):

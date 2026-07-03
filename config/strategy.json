@@ -2,7 +2,7 @@
   "mode": "DEMO",
   "active_symbols": ["XAUUSDc"],
   "inactive_symbols": ["XAUUSDm", "XAUEURm", "NAS100", "XAGUSDm"],
-  "loop_sleep_seconds": 2,
+  "loop_sleep_seconds": 1,
   "min_score_to_trade": 50.0,
   "high_confidence_score": 90.0,
 
